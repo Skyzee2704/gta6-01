@@ -56,19 +56,19 @@ export function updateMissions(state, city, dt, rng) {
   const goto = (x, z, r) => dist2(x, z, p.x, p.z) < (r || 25) * (r || 25);
   switch (m.id) {
     case 1: {
-      if (m.stage === 0 && goto(-260, 200, 8)) { m.stage = 1; state.notices.push('Mobil Rosa ditemukan. Naik (E), bawa ke bengkel.'); }
-      else if (m.stage === 1 && !p.onFoot && goto(-180, 60, 12)) completeMission(state);
+      if (m.stage === 0 && goto(-260, 200, 12)) { m.stage = 1; state.notices.push('Mobil Rosa ditemukan. Naik (E), bawa ke bengkel.'); }
+      else if (m.stage === 1 && !p.onFoot && goto(-180, 60, 25)) completeMission(state);
       break;
     }
     case 2: {
       if (m.stage === 0 && !p.onFoot) { m.stage = 1; state.wanted.heat = 1.2; state.wanted.level = 1; state.wanted.spotted = true; }
-      else if (m.stage === 1 && goto(120, -160, 12) && state.wanted.level === 0) completeMission(state);
-      else if (m.stage === 1 && goto(120, -160, 12) && state.wanted.level > 0) state.notices.push('Masih dikejar! Hilangkan wanted dulu.');
+      else if (m.stage === 1 && goto(120, -160, 20) && state.wanted.level === 0) completeMission(state);
+      else if (m.stage === 1 && goto(120, -160, 20) && state.wanted.level > 0) state.notices.push('Masih dikejar! Hilangkan wanted dulu.');
       break;
     }
     case 3: {
       const pickups = [[-260, 200], [200, 40], [280, -40]];
-      if (goto(pickups[m.stage][0], pickups[m.stage][1], 8)) {
+      if (goto(pickups[m.stage][0], pickups[m.stage][1], 15)) {
         m.stage += 1; state.notices.push(`Paket ${m.stage}/3 diambil.`);
         if (m.stage >= 3) completeMission(state);
       }
@@ -83,21 +83,21 @@ export function updateMissions(state, city, dt, rng) {
         if (!vulture) {
           const v = state.vehicles.find(v => v.model === 'coupe' && !v.driver && v.parked);
           if (v) { v.driver = 'vulture'; v.parked = false; v.x = -140; v.z = 100; }
-        } else if (vulture.hp <= 30 || dist2(vulture.x, vulture.z, p.x, p.z) < 25) completeMission(state);
+        } else if (vulture.hp <= 30 || dist2(vulture.x, vulture.z, p.x, p.z) < 400) completeMission(state);
       }
       break;
     }
     case 5: {
       if (m.stage === 0 && !p.onFoot && state.vehicles.find(v => v.id === p.vehicleId)?.model === 'sports') { m.stage = 1; state.notices.push('Sports car didapat. Antar ke Palm Heights.'); }
-      else if (m.stage === 1 && goto(-200, -180, 12)) completeMission(state);
+      else if (m.stage === 1 && goto(-200, -180, 25)) completeMission(state);
       break;
     }
     case 6: {
-      if (m.stage === 0 && goto(260, 40, 10)) { m.stage = 1; m.stageTimer = 12; state.notices.push('BOBOL VAULT: tahan polisi 12 detik!'); state.wanted.heat = 4; state.wanted.level = 4; state.wanted.spotted = true; }
+      if (m.stage === 0 && goto(260, 40, 15)) { m.stage = 1; m.holdTimer = 12; state.notices.push('BOBOL VAULT: tahan polisi 12 detik!'); state.wanted.heat = 4; state.wanted.level = 4; state.wanted.spotted = true; }
       else if (m.stage === 1) {
-        if (m.stageTimer <= -12 + 12) { /* timer counts down from 12 */ }
-        if (m.stageTimer <= 0 && m.stage === 1) { m.stage = 2; state.notices.push('Vault terbuka! Kabur ke safehouse!'); }
-      } else if (m.stage === 2 && goto(-260, 190, 12) && state.wanted.level === 0) completeMission(state);
+        m.holdTimer = (m.holdTimer ?? 12) - dt;
+        if (m.holdTimer <= 0) { m.stage = 2; state.notices.push('Vault terbuka! Kabur ke safehouse!'); }
+      } else if (m.stage === 2 && goto(-260, 190, 25) && state.wanted.level === 0) completeMission(state);
       break;
     }
     default: break;

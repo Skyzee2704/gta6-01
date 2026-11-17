@@ -60,7 +60,7 @@ export const CAST = [
 export const MISSIONS = [
   { id: 1, chapter: 1, title: 'First Wheels', giver: 'rosa', payout: 200, respect: 100, blurb: 'Ambil mobil Rosa di dermaga, bawa ke bengkel. Jangan bikin ribut.', start: [-260, 190], target: [-180, 60] },
   { id: 2, chapter: 2, title: 'Getaway Driver', giver: 'rosa', payout: 400, respect: 200, blurb: 'Antar teman Rosa keluar dari kordon polisi, lalu hilangkan polisi.', start: [-180, 60], target: [120, -160] },
-  { id: 3, chapter: 3, title: 'The Collector', giver: 'mags', payout: 600, respect: 300, blurb: 'Ambil 3 paket di Marina, Neon Mile, Harbor Docks sebelum 150 detik habis.', start: [0, 0], target: [0, 0], timer: 150 },
+  { id: 3, chapter: 3, title: 'The Collector', giver: 'mags', payout: 600, respect: 300, blurb: 'Ambil 3 paket di Marina, Neon Mile, Harbor Docks sebelum 240 detik habis.', start: [0, 0], target: [0, 0], timer: 240 },
   { id: 4, chapter: 4, title: 'Vulture Trouble', giver: 'rosa', payout: 800, respect: 400, blurb: 'Vultures menyerang bengkel. Bertahan 2 gelombang, lalu kejar mobil mereka.', start: [-180, 60], target: [-180, 60] },
   { id: 5, chapter: 5, title: 'The Big Score', giver: 'juno', payout: 1200, respect: 600, blurb: 'Curi sports car dari lot yang dijaga, antar ke pembeli di Palm Heights.', start: [200, 40], target: [-200, -180], timer: 180 },
   { id: 6, chapter: 6, title: 'King of Solmar', giver: 'rosa', payout: 1500, respect: 1000, blurb: 'Jemput kru, rampok truk vault di Harbor Docks, kabur wanted 4 ke safehouse.', start: [-180, 60], target: [260, 40], timer: 300 },

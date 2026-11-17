@@ -3,17 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>SOLMAR 3D — Streets of Gold</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1026; font-family: system-ui, sans-serif; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #f5ead2; text-shadow: 0 1px 3px #000; z-index: 5; }
+  #hud-top-left { position: absolute; top: 12px; left: 14px; font-size: 17px; line-height: 1.5; }
+  #hud-top-right { position: absolute; top: 12px; right: 14px; text-align: right; font-size: 15px; line-height: 1.5; }
+  #hud-wanted { color: #ffd94d; font-size: 20px; }
+  #hud-wanted .escape { width: 140px; height: 6px; background: #333; border-radius: 3px; }
+  #hud-wanted .escape div { height: 100%; background: #ff4f4f; border-radius: 3px; }
+  #hud-objective { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 6px; font-size: 14px; max-width: 560px; text-align: center; }
+  #hud-banner { position: absolute; top: 22%; left: 0; right: 0; text-align: center; transition: opacity .6s; }
+  .banner-name { display: inline-block; font-size: 42px; font-weight: 800; border-bottom: 4px solid #2ee6c8; padding: 0 18px; }
+  .banner-tag { font-size: 17px; color: #ffe9a8; margin-top: 4px; }
+  #hud-dialogue { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; background: rgba(0,0,0,.7); padding: 10px 14px; border-radius: 8px; max-width: 620px; align-items: center; }
+  #hud-notices { position: absolute; bottom: 200px; left: 14px; font-size: 14px; line-height: 1.6; }
+  #hud-prompt { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 15px; background: rgba(0,0,0,.55); padding: 4px 10px; border-radius: 5px; }
+  #hud-crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 26px; color: #fff; display: none; }
+  #hud-speed { position: absolute; bottom: 16px; right: 16px; font-size: 22px; font-weight: 700; }
+  #hud-weapon { position: absolute; bottom: 16px; left: 16px; font-size: 16px; }
+  #hud-wheel { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.65); padding: 12px 18px; border-radius: 10px; font-size: 15px; line-height: 1.8; }
+  #hud-wheel .locked { color: #888; }
+  #hud-hurt { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,.55) 100%); opacity: 0; pointer-events: none; }
+  #hud-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #hud-screen .panel { pointer-events: auto; background: rgba(10,14,30,.92); border: 1px solid #2ee6c8; border-radius: 12px; padding: 26px 34px; max-width: 640px; text-align: center; }
+  #hud-screen .panel h1 { font-size: 52px; margin: 0; color: #ffc94d; letter-spacing: 2px; }
+  #hud-screen .panel h2 { margin-top: 0; color: #ffc94d; }
+  #hud-screen .panel button { pointer-events: auto; background: #ffc94d; border: 0; border-radius: 6px; padding: 10px 18px; font-size: 16px; margin: 6px; cursor: pointer; }
+  #hud-screen .panel .small { font-size: 13px; color: #aaa; }
+  #minimap { position: fixed; right: 14px; bottom: 64px; width: 190px; height: 145px; border: 2px solid rgba(255,255,255,.4); border-radius: 6px; background: #20242a; z-index: 6; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="SOLMAR 3D: open-world crime game — explore Solmar on foot and by car"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+<div id="hud"></div>
+<canvas id="minimap" width="190" height="145"></canvas>
+<script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

@@ -60,14 +60,15 @@ export function updateVehicle(state, city, dt, input) {
   v.speed = clamp(v.speed, -10, top);
   if (Math.abs(v.speed) < 0.05 && !input.forward && !input.back) v.speed = 0;
   const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  const turnRate = 1.9 * v.def.grip * grip / (1 + Math.abs(v.speed) * 0.045);
+  const turnRate = 2.2 * v.def.grip * grip / (1 + Math.abs(v.speed) * 0.025);
   v.heading += steer * turnRate * dt * (v.speed >= 0 ? 1 : -1) * (input.handbrake ? 1.5 : 1);
   const nx = v.x + Math.sin(v.heading) * v.speed * dt;
   const nz = v.z + Math.cos(v.heading) * v.speed * dt;
-  const b = buildingAt(city, nx, nz);
-  if (b) {
-    v.speed *= -0.25; state.mission.stats.crashes += 1;
-    if (Math.abs(v.speed) > 8) v.hp -= 5;
+  if (buildingAt(city, nx, nz)) {
+    // Slide along the wall instead of wedging: try x-only, then z-only.
+    if (!buildingAt(city, nx, v.z)) { v.x = nx; }
+    else if (!buildingAt(city, v.x, nz)) { v.z = nz; }
+    else { v.speed *= -0.25; state.mission.stats.crashes += 1; if (Math.abs(v.speed) > 8) v.hp -= 5; }
   } else {
     v.x = nx; v.z = nz;
   }

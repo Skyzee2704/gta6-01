@@ -7,8 +7,6 @@ export function updatePeds(state, city, dt, rng) {
   const p = state.player;
   const alive = state.peds.filter(q => q.alive);
   if (alive.length < PED_MAX && rng() < 0.2) {
-    const a = Math.random() * 0; // placeholder guard, replaced below by rng
-    void a;
     const node = city.nodes[Math.floor(rng() * city.nodes.length)];
     state.peds.push({
       alive: true, x: node.x + (rng() - 0.5) * 20, z: node.z + (rng() - 0.5) * 20,

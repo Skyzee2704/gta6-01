@@ -14,7 +14,7 @@ export function updateTraffic(state, city, dt, rng) {
   const p = state.player;
   // Spawn ring around the player.
   const traffic = state.vehicles.filter(v => v.driver === 'traffic');
-  if (traffic.length < TRAFFIC_MAX && rng() < 0.3) {
+  if (traffic.length < TRAFFIC_MAX && state.vehicles.length < 70 && rng() < 0.3) {
     const v = spawnTrafficCar(state, city, rng);
     const node = city.nodes[Math.floor(rng() * city.nodes.length)];
     v.x = node.x + (rng() - 0.5) * 6; v.z = node.z + (rng() - 0.5) * 6;

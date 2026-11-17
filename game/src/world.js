@@ -14,6 +14,7 @@ import { updateEnemies } from './combat.js';
 import { updateBoats } from './boats.js';
 import { updateWeather } from './weather.js';
 import { updateAircraft } from './aircraft.js';
+import { tickFireCooldown } from './weapons.js';
 
 export const EVENT_NONE = 0;
 export const EVENT_WASTED = 1;
@@ -44,6 +45,8 @@ export function createWorld(seed) {
   };
   // Parked cars become world vehicles (stealable).
   city.parked.forEach((p, i) => state.vehicles.push(createVehicleState(i, p.model, p.x, p.z, p.heading, p.color, true)));
+  // The Big Score sports car, parked in the guarded lot at Harbor Docks.
+  state.vehicles.push(createVehicleState(state.vehicles.length, 'sports', 200, 40, 0, 0xd81a1a, true));
   // Two drivable boats moored at the marina / harbor.
   city.boats.forEach((b, i) => state.boats.push({ id: i, model: b.model, x: b.x, z: b.z, heading: 0, speed: 0, bob: 0, driver: false }));
   // Player helicopter on the harbor helipad.
@@ -81,6 +84,7 @@ export function createWorld(seed) {
   function step(dt, input) {
     const p = state.player;
     state.time += dt;
+    tickFireCooldown(state, dt);
     state.hour += dt * 0.01; // 0.6 minutes per second
     if (state.hour >= 24) { state.hour -= 24; state.day += 1; if (state.penthouseOwned) state.money += ECONOMY.penthouseIncome; }
     // District banner.
@@ -152,9 +156,10 @@ export function createWorld(seed) {
         if (state.tapesTaken === 20) { state.money += ECONOMY.tapeBonus; state.weapons.owned.sniper = { mag: 5, reserve: 15 }; state.notices.push('Semua 20 Postcard! Bonus $5000 + Sniper Longeye 308 gratis.'); }
       }
     }
-    // Death / busted flags surfaced as events.
+    // Death / busted flags surfaced as events; the sim respawns the player
+    // at the safehouse hospital (fee + half ammo) so play continues.
     let events = EVENT_NONE;
-    if (p.health <= 0 && !p.dead) { p.dead = true; events |= EVENT_WASTED; }
+    if (p.health <= 0 && !p.dead) { events |= EVENT_WASTED; damagePlayer(0, 'wasted'); }
     if (p.busted) events |= EVENT_BUSTED;
     return events;
   }
