@@ -1,61 +1,31 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
-
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
+// SOLMAR 3D — every tuning number in one place. City is 640 x 480 units,
+// flat ground at y = 0, golden-hour start 18:15. All sim units are metres-ish.
 export const STEP = 1 / 60;
-
-export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
-};
-
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
-};
-
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
-};
-
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
-
+export const SEED = 1;
+export const START_HOUR = 18.25;
+export const CITY = { w: 640, h: 480, roadW: 16, walkW: 4 };
+export const PLAYER = { walk: 6, run: 9, jumpV: 7, gravity: 20, health: 100, armorMax: 100 };
+export const CAMERA = { boom: 9, height: 4, fovMin: 58, fovMax: 74, driveBoom: 13, driveHeight: 5 };
+export const TRAFFIC_MAX = 24;
+export const PED_MAX = 36;
+export const COP_MAX = 6;
+export const PERF_BUDGET_MS = 8;
+export const SAVE_KEY = 'solmar3d.save.v1';
+export const SETTINGS_KEY = 'solmar3d.settings.v1';
 export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
+  skyDay: 0x8fc7e8, skyDusk: 0xff8c4a, skyNight: 0x0b1026,
+  sun: 0xffd9a0, asphalt: 0x3a3a40, sidewalk: 0x9a938a, sand: 0xe8d29a,
+  sea: 0x1f8fa8, grass: 0x5d8a4a, terracotta: 0xc96f3f, glass: 0x7fb8d8,
+  neonPink: 0xff4fa3, neonTeal: 0x2ee6c8, neonGold: 0xffc94d, cream: 0xf5ead2,
 };
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+export const DISTRICT_COLORS = {
+  marina: 0x2ee6c8, old: 0xe07840, neon: 0xff4fa3, harbor: 0xffc94d, palm: 0x7fd069, downtown: 0x6fb7ff,
+};
+export const WEATHER = { clear: 'clear', cloudy: 'cloudy', rain: 'rain' };
+export const WANTED = { searchBase: 240, searchPerLevel: 85, escapeBase: 5, escapePerLevel: 1.5 };
+export const ECONOMY = {
+  hospitalFee: 300, hospitalPct: 0.10, hospitalMin: 100, hospitalMax: 2000,
+  bailFee: 500, resprayBase: 150, resprayPerLevel: 100, mealPrice: 25, penthousePrice: 20000,
+  penthouseIncome: 500, tapeMoney: 500, tapeRespect: 60, tapeBonus: 5000, taxiRespect: 20,
+};
+export const RACE_REWARD = { marina: 300, neon: 500, downtown: 800, beatBestBonus: 200 };
