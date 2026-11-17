@@ -16,13 +16,14 @@ export const SCREEN_OVER = 'over';
 export const SCREEN_MAP = 'map';
 
 function skyColors(hour) {
-  // Keyframes: dawn 6, noon 12, dusk 18.5, night 22.
-  const sunElev = Math.sin(((hour - 6) / 12) * Math.PI);
-  if (hour >= 6 && hour < 18.5) {
+  // Keyframes: sunrise ~05:00, sunset ~19:30, night after. Golden hour
+  // is a low sun near 18:15-19:00, not full dark.
+  const sunElev = Math.sin(((hour - 5) / 14.5) * Math.PI);
+  if (hour >= 5 && hour < 19.5) {
     const warmth = clamp(1 - Math.abs(sunElev - 0.15) * 4, 0, 1);
-    return { top: [0x6fb7e8, 0xff9a4a, warmth], horizon: [0xcfe8f5, 0xffc27a, warmth], sun: sunElev, fog: 420, ambient: 0.55 + sunElev * 0.45, sunI: 1.2 + sunElev * 1.2 };
+    return { top: [0x6fb7e8, 0xff9a4a, warmth], horizon: [0xcfe8f5, 0xffc27a, warmth], sun: sunElev, fog: 420, ambient: 0.55 + Math.max(0, sunElev) * 0.45, sunI: 1.2 + Math.max(0, sunElev) * 1.2 };
   }
-  return { top: [0x0b1026, 0x0b1026, 0], horizon: [0x1a2340, 0x1a2340, 0], sun: -0.3, fog: 300, ambient: 0.25, sunI: 0.25 };
+  return { top: [0x0b1026, 0x0b1026, 0], horizon: [0x1a2340, 0x1a2340, 0], sun: -0.3, fog: 300, ambient: 0.4, sunI: 0.25 };
 }
 export function createRenderer(canvas, state, city) {
   let renderer = null, failed = false;
@@ -56,10 +57,10 @@ export function createRenderer(canvas, state, city) {
   const ambient = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambient);
   const hemi = new THREE.HemisphereLight(0x8fc7e8, 0x3a2a1a, 0.5); scene.add(hemi);
   // Ground: big plane + road strips merged into one geometry.
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x6a7a4a, roughness: 1 });
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x7d9155, roughness: 1 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 560), groundMat);
   ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.05, 10); ground.receiveShadow = true; scene.add(ground);
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.9 });
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.9 });
   const roadGeos = [];
   for (const x of [-280, -200, -120, -40, 40, 120, 200, 280]) {
     const g = new THREE.PlaneGeometry(16, 480); g.rotateX(-Math.PI / 2); g.translate(x, 0.02, 0); roadGeos.push(g);
@@ -204,11 +205,13 @@ export function createRenderer(canvas, state, city) {
     camera.updateProjectionMatrix();
     // Day/night keyframes.
     const sky = skyColors(state.hour);
-    const night = state.hour < 6 || state.hour >= 18.5;
-    scene.background = new THREE.Color(sky.horizon[0]);
-    scene.fog = new THREE.Fog(sky.horizon[0], 120, sky.fog * (state.weather.kind === 'rain' ? 0.6 : 1));
+    const night = state.hour < 5 || state.hour >= 19.5;
+    // Blend the horizon colour toward dusk orange by warmth (golden hour).
+    const bgCol = new THREE.Color(sky.horizon[0]).lerp(new THREE.Color(sky.horizon[1]), sky.horizon[2]);
+    scene.background = bgCol;
+    scene.fog = new THREE.Fog(bgCol.getHex(), 120, sky.fog * (state.weather.kind === 'rain' ? 0.6 : 1));
     const sunAngle = ((state.hour - 6) / 12) * Math.PI;
-    sun.position.set(Math.cos(sunAngle) * 200 + state.player.x, Math.max(20, Math.sin(sunAngle) * 180), state.player.z + 60);
+    sun.position.set(Math.cos(sunAngle) * 200 + state.player.x, Math.max(60, Math.sin(sunAngle) * 180), state.player.z + 60);
     sun.target.position.set(state.player.x, 0, state.player.z);
     sun.intensity = sky.sunI;
     ambient.intensity = sky.ambient;
@@ -248,7 +251,7 @@ export function createRenderer(canvas, state, city) {
       if (!e.alive || pi >= 48) continue;
       pos.set(e.x, 1.0, e.z); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
       sc.set(1, 1.8, 1); m4.compose(pos, q, sc); pedMesh.setMatrixAt(pi, m4);
-      col.setHex(0x8a1a1a); pedMesh.setColorAt(pi, col); pi++;
+      col.setHex(0xd81a1a); pedMesh.setColorAt(pi, col); pi++;
     }
     pedMesh.count = pi; pedMesh.instanceMatrix.needsUpdate = true;
     if (pedMesh.instanceColor) pedMesh.instanceColor.needsUpdate = true;
@@ -300,6 +303,7 @@ export function createRenderer(canvas, state, city) {
       blurMat.uniforms.t.value = blurRT.texture; blurMat.uniforms.dir.value.set(0, 1);
       renderPass(blurMat, brightRT);
       compMat.uniforms.b.value = brightRT.texture;
+      quad.material = compMat;
       renderer.setRenderTarget(null);
       renderer.render(quadScene, quadCam);
     } else {

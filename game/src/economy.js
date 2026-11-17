@@ -1,7 +1,7 @@
 // Economy: money, respect, unlocks, fines and income. Every system pays,
 // fines or rewards — nothing is free of consequence.
-import { ECONOMY, RESPECT_LEVELS } from './config.js';
-import { respectLevel } from './data.js';
+import { ECONOMY } from './config.js';
+import { respectLevel, RESPECT_LEVELS } from './data.js';
 
 export function addMoney(state, n) { state.money = Math.max(0, state.money + n); }
 export function addRespect(state, n) {

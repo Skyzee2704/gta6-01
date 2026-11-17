@@ -29,6 +29,12 @@ export function createHud(state, city) {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }
   function update(screen) {
+    const inMenu = screen === 'title' || screen === 'map';
+    el('hud-top-left').style.display = inMenu ? 'none' : '';
+    el('hud-top-right').style.display = inMenu ? 'none' : '';
+    el('hud-objective').style.display = inMenu ? 'none' : '';
+    el('hud-weapon').style.display = inMenu ? 'none' : '';
+    el('hud-speed').style.display = inMenu ? 'none' : '';
     const p = state.player;
     el('hud-health').textContent = `❤ ${Math.ceil(p.health)}`;
     el('hud-armor').textContent = `🛡 ${Math.ceil(p.armor)}`;

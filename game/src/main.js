@@ -34,8 +34,12 @@ const city = world.city;
 function runShot(name) {
   const staged = stageShot(name, world);
   const renderer = createRenderer(canvas, state, city);
+  if (staged.yaw !== undefined) renderer.rig.yaw = staged.yaw;
+  if (staged.dist !== undefined) renderer.rig.dist = staged.dist;
+  if (params.get('nobloom')) renderer.bloomOn = false;
   const hud = createHud(state, city);
   const minimap = createMinimap(state, city);
+  if (staged.screen === SCREEN_TITLE || staged.screen === SCREEN_MAP) document.getElementById('minimap').style.visibility = 'hidden';
   let painted = 0;
   function paint() {
     const input = emptyInput();

@@ -1,18 +1,18 @@
-// A working gta6-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. Only the plumbing, not an open world: Block
-// Dodger, a plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a
-// title screen, score, lives and levels, game over and restart, flat colours and no sound. Build
-// your own open-world crime game in its place (three.js or any library you vendor under game/),
-// put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
+// SOLMAR 3D — hand-in program (Node 22, standard library only).
+// Copies game/ and screenshots/ beside this file to /output and writes
+// /output/dossier.json with the vendored make.fun library.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Gate (refuses a bad hand-in, exit 1, message "refusing to hand in"):
+//   - game/index.html, game/src/main.js, game/src/render.js, game/src/city.js exist
+//   - screenshots/ holds 3-4 images, nothing else, cover starts with "1-"
+//   - dossier caps, written in the comment below, are enforced by buildDossier:
+//     dossier text 163840 bytes; screenshots max 4, each max 262144 bytes;
+//     game/ max 993 files and 48 MiB; any game/ path max 1000 bytes;
+//     /output total max 1000 entries and 64 MiB.
+//
+// Run it outside the grader with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -20,15 +20,33 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+function refuse(reason) {
+  console.error(`refusing to hand in: ${reason}`);
+  process.exit(1);
+}
+
+const required = ['game/index.html', 'game/src/main.js', 'game/src/render.js', 'game/src/city.js', 'game/src/world.js', 'game/src/data.js'];
+for (const file of required) {
+  if (!existsSync(join(here, file))) refuse(`missing required file ${file}`);
+}
+
+const shotsDir = join(here, 'screenshots');
+if (!existsSync(shotsDir)) refuse('missing screenshots/ directory');
+const shots = readdirSync(shotsDir).filter((name) => !name.startsWith('.')).sort();
+if (shots.length < 3 || shots.length > 4) refuse(`screenshots/ holds ${shots.length} images, need 3-4`);
+for (const name of shots) {
+  const full = join(shotsDir, name);
+  if (!statSync(full).isFile()) refuse(`screenshots/${name} is not a regular file`);
+  if (!/\.(png|jpe?g)$/i.test(name)) refuse(`screenshots/${name} is not a PNG or JPEG`);
+  if (statSync(full).size > 262144) refuse(`screenshots/${name} is over 256 KiB`);
+}
+if (!shots[0].startsWith('1-')) refuse(`cover screenshot ${shots[0]} does not start with 1-`);
+
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+cpSync(shotsDir, join(out, 'screenshots'), { recursive: true });
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
-// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {
@@ -39,3 +57,4 @@ writeFileSync(
     game_path_max_bytes: 1000,
   }),
 );
+console.log(`handed in SOLMAR 3D: ${shots.length} screenshots, dossier written to ${join(out, 'dossier.json')}`);
