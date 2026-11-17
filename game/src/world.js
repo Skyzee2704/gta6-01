@@ -125,7 +125,7 @@ export function createWorld(seed) {
       const c = clampToCity(p.x, p.z); p.x = c.x; p.z = c.z;
       if (inWater(p.x, p.z)) { p.z = 238; }
       if (input.interact) tryInteract();
-      if (input.enterVehicle) tryEnterVehicle();
+      if (input.enterVehicle) { tryEnterVehicle(); input.enterVehicle = false; }
     } else if (p.vehicleId >= 0) {
       updateVehicle(state, city, dt, input);
     } else if (p.boatId >= 0) {
@@ -192,8 +192,9 @@ export function createWorld(seed) {
     const p = state.player;
     // Helicopter first (helipad).
     for (const h of state.helis) if (!h.pilot && dist2(p.x, p.z, h.x, h.z) < 16) { h.pilot = true; p.heliId = h.id; p.onFoot = false; return; }
-    // Boat at the dock.
-    for (const b of state.boats) if (!b.driver && dist2(p.x, p.z, b.x, b.z) < 16) { b.driver = true; p.boatId = b.id; p.onFoot = false; return; }
+    // Boat at the dock: board from the pier end (shore clamps the player
+    // to z = 238, boats sit at z = 252, so the radius must span the gap).
+    for (const b of state.boats) if (!b.driver && dist2(p.x, p.z, b.x, b.z) < 400) { b.driver = true; p.boatId = b.id; p.onFoot = false; return; }
     const v = nearestVehicle(state, p.x, p.z, 6);
     if (v) enterVehicle(state, v, rng);
   }

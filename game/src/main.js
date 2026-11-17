@@ -39,6 +39,7 @@ function runShot(name) {
   if (params.get('nobloom')) renderer.bloomOn = false;
   const hud = createHud(state, city);
   const minimap = createMinimap(state, city);
+  if (params.get('debug')) setTimeout(() => console.log(JSON.stringify({ drawCalls: renderer.drawCalls, triangles: renderer.triangles, fps: renderer.fps })), 3000);
   if (staged.screen === SCREEN_TITLE || staged.screen === SCREEN_MAP) document.getElementById('minimap').style.visibility = 'hidden';
   let painted = 0;
   function paint() {

@@ -21,9 +21,13 @@ export function enterVehicle(state, v, rng) {
   if (v.def.locked) { state.notices.push('Bus terkunci. Tidak bisa dicuri.'); return false; }
   const witnessed = state.peds.some(q => q.alive && dist2(q.x, q.z, p.x, p.z) < 90000) || state.cops.some(c => dist2(c.x, c.z, p.x, p.z) < 270400);
   if (v.parked || !v.driver) {
-    if (!v.parked && v.driver === 'civilian') {
+    if (v.driver === 'civilian') {
       // Driver flees on foot.
       v.driver = null;
+      state.stats.steals += 1;
+      if (witnessed) { state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat)); state.wanted.spotted = true; }
+    } else if (v.parked) {
+      // Stealing a parked car is still a crime when someone sees it.
       state.stats.steals += 1;
       if (witnessed) { state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat)); state.wanted.spotted = true; }
     }

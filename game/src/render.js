@@ -298,6 +298,8 @@ export function createRenderer(canvas, state, city) {
     if (api.bloomOn) {
       renderer.setRenderTarget(sceneRT);
       renderer.render(scene, camera);
+      // Capture scene stats here: the bloom passes reset info.render.
+      api.drawCalls = renderer.info.render.calls; api.triangles = renderer.info.render.triangles;
       renderPass(brightMat, brightRT);
       blurMat.uniforms.dir.value.set(1, 0); renderPass(blurMat, blurRT);
       blurMat.uniforms.t.value = blurRT.texture; blurMat.uniforms.dir.value.set(0, 1);
@@ -311,8 +313,7 @@ export function createRenderer(canvas, state, city) {
       renderer.render(scene, camera);
     }
     api._frameMs = performance.now() - t0;
-    const info = renderer.info;
-    api.drawCalls = info.render.calls; api.triangles = info.render.triangles;
+    if (!api.bloomOn) { const info = renderer.info; api.drawCalls = info.render.calls; api.triangles = info.render.triangles; }
     // Title screen: slow cinematic orbit.
     if (screen === SCREEN_TITLE) { rig.orbit += dt * 0.05; rig.yaw = rig.orbit; }
   };
