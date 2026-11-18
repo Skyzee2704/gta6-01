@@ -1,64 +1,93 @@
-// Keyboard + mouse. Held keys give movement; one-shot presses queue as bit
-// flags and are taken once by the loop, so a press between frames is never
-// lost or counted twice.
-import { emptyInput } from './world.js';
+// input.js — keyboard + mouse input, with edge-triggered actions.
+// The sim reads a plain input object each step; the browser builds it
+// from real keys, the tests build it by hand. An "action" fires once per
+// key press (edge), not once per step while held — that is what stops
+// the radio from spinning when ] is held down.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_MAP = 4;
-export const ACTION_TOPDOWN = 8;
-export const ACTION_RADIO_NEXT = 16;
-export const ACTION_RADIO_PREV = 32;
+import { clamp } from './random.js';
 
-export function createInput(canvas) {
-  const held = new Set();
-  let actions = 0, mouseDX = 0, mouseDY = 0, wheel = 0, fireHeld = false;
-  let locked = false;
-  window.addEventListener('keydown', (event) => {
-    if (event.repeat) return;
-    held.add(event.code);
-    if (event.code === 'Space' || event.code === 'Enter') actions |= ACTION_CONFIRM;
-    if (event.code === 'Escape') actions |= ACTION_PAUSE;
-    if (event.code === 'KeyM') actions |= ACTION_MAP;
-    if (event.code === 'KeyV') actions |= ACTION_TOPDOWN;
-    // Radio: edge-triggered (one station per keydown; keydown ignores
-    // repeats, so holding ] can never spin through the stations).
-    if (event.code === 'BracketRight') actions |= ACTION_RADIO_NEXT;
-    if (event.code === 'BracketLeft') actions |= ACTION_RADIO_PREV;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => held.delete(event.code));
-  window.addEventListener('blur', () => held.clear());
-  canvas.addEventListener('mousedown', (e) => { if (e.button === 0) fireHeld = true; if (e.button === 2) held.add('Aim'); });
-  window.addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; if (e.button === 2) held.delete('Aim'); });
-  canvas.addEventListener('mousemove', (e) => { mouseDX += e.movementX || 0; mouseDY += e.movementY || 0; });
-  canvas.addEventListener('wheel', (e) => { wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  function read() {
-    const input = emptyInput();
-    input.forward = held.has('KeyW') || held.has('ArrowUp');
-    input.back = held.has('KeyS') || held.has('ArrowDown');
-    input.left = held.has('KeyA') || held.has('ArrowLeft');
-    input.right = held.has('KeyD') || held.has('ArrowRight');
-    input.run = held.has('ShiftLeft') || held.has('ShiftRight');
-    input.jump = held.has('Space');
-    input.handbrake = held.has('Space');
-    input.interact = held.has('KeyE');
-    input.enterVehicle = held.has('KeyE');
-    input.reload = held.has('KeyR');
-    input.aim = held.has('Aim');
-    input.fire = fireHeld;
-    input.mouseDX = mouseDX; input.mouseDY = mouseDY;
-    input.wheel = wheel;
-    input.radioNext = held.has('KeyQ') && !held.has('ShiftLeft');
-    mouseDX = 0; mouseDY = 0; wheel = 0;
-    return input;
-  }
+// A fresh input object: every control released, no actions queued.
+export function emptyInput() {
   return {
-    read,
-    takeActions() { const t = actions; actions = 0; return t; },
-    isHeld(code) { return held.has(code); },
-    press(code) { held.add(code); },
-    release(code) { held.delete(code); },
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    handbrake: false,
+    jump: false,
+    run: false,
+    enterVehicle: false,
+    interact: false,
+    fire: false,
+    reload: false,
+    weaponNext: false,
+    weaponPrev: false,
+    radioNext: false,
+    radioPrev: false,
+    pause: false,
+    map: false,
+    topDown: false,
+    mouseDX: 0,
+    mouseDY: 0,
   };
 }
+
+// The live keyboard state the browser maintains. `pressed` is the set of
+// keys currently down; `tapped` is the set pressed since the last step
+// (cleared after each step, so one press = one action).
+export function createKeyboard() {
+  return {
+    pressed: new Set(),
+    tapped: new Set(),
+    mouseDX: 0,
+    mouseDY: 0,
+    // Call from a keydown handler. Returns nothing; the press is recorded.
+    down(code) {
+      if (!this.pressed.has(code)) this.tapped.add(code);
+      this.pressed.add(code);
+    },
+    up(code) {
+      this.pressed.delete(code);
+    },
+    // Build the sim input for this step from the live key state.
+    read() {
+      const p = this.pressed;
+      const t = this.tapped;
+      const inp = emptyInput();
+      inp.forward = p.has('KeyW') || p.has('ArrowUp');
+      inp.back = p.has('KeyS') || p.has('ArrowDown');
+      inp.left = p.has('KeyA') || p.has('ArrowLeft');
+      inp.right = p.has('KeyD') || p.has('ArrowRight');
+      inp.handbrake = p.has('Space');
+      inp.jump = p.has('Space');
+      inp.run = p.has('ShiftLeft') || p.has('ShiftRight');
+      inp.enterVehicle = t.has('KeyE');
+      inp.interact = t.has('KeyE');
+      inp.fire = p.has('Mouse0');
+      inp.reload = t.has('KeyR');
+      inp.weaponNext = t.has('KeyQ');
+      inp.radioNext = t.has('BracketRight');
+      inp.radioPrev = t.has('BracketLeft');
+      inp.pause = t.has('Escape');
+      inp.map = t.has('KeyM');
+      inp.topDown = t.has('KeyV');
+      inp.mouseDX = this.mouseDX;
+      inp.mouseDY = this.mouseDY;
+      this.mouseDX = 0;
+      this.mouseDY = 0;
+      this.tapped.clear();
+      return inp;
+    },
+  };
+}
+
+// Mouse look: turning right (positive mouseDX) decreases yaw, so the
+// camera swings the way the hand moves. The sim applies this to the
+// player heading when aiming on foot.
+export function applyMouseLook(state, mouseDX, sensitivity = 0.003) {
+  if (!state.player.onFoot) return;
+  state.player.heading -= mouseDX * sensitivity;
+}
+
+// Clamp a value into a range (re-exported for input users).
+export { clamp };

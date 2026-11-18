@@ -1,12 +1,20 @@
 #!/bin/bash
 # check3d: serve game/ locally, render the cover + title scenes in headless
-# Chromium (SwiftShader) — needs a Chromium binary on PATH — and fail on
-# a missing image, an Uncaught error,
+# Chromium (SwiftShader), and fail on a missing image, an Uncaught error,
 # 3D RENDERER FAILED, or a failed view switch. Prints draw stats from the page.
 set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${PORT:-8123}"
-OUT="${OUT:-/tmp/check3d}"
+# Chromium: prefer the Playwright build (SwiftShader-capable), then the
+# system browser. Set CHROME to override.
+if [ -z "$CHROME" ]; then
+  for c in "$HOME/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome" "$HOME/.cache/ms-playwright/chromium-1187/chrome-linux/chrome" chromium-browser chromium google-chrome; do
+    if command -v "$c" >/dev/null 2>&1 || [ -x "$c" ]; then CHROME="$c"; break; fi
+  done
+fi
+CHROME="${CHROME:-chromium-browser}"
+# Scratch dir: TMPDIR (the VM's /tmp is only 512 MB).
+OUT="${OUT:-${TMPDIR:-~/.cache/tmp}/check3d}"
 mkdir -p "$OUT"
 cd "$REPO"
 node serve.ts --port "$PORT" > "$OUT/serve.log" 2>&1 &

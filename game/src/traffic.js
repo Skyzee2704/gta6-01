@@ -1,81 +1,89 @@
-// Traffic AI: cars follow the road graph, stop at red lights, yield at
-// intersections, honk when blocked over 4 seconds, panic when shots ring out.
-import { TRAFFIC_MAX } from './config.js';
-import { findPath } from './city.js';
-import { spawnTrafficCar } from './vehicles.js';
-import { dist2 } from './random.js';
+// traffic.js — traffic AI. Cars follow the road graph, keep their lane,
+// brake for pedestrians ahead and for slow cars, and panic (speed up,
+// swerve) when the player causes chaos nearby.
 
-const SPEEDS = { highway: 14, avenue: 12, boulevard: 10, street: 9, lane: 7 };
-export function lightState(city, light, time) {
-  const cycle = (time + light.phase) % 12;
-  return cycle < 6 ? 'green' : cycle < 7.5 ? 'yellow' : 'red';
+import { dist2, clamp } from './random.js';
+import { findPath } from './city.js';
+
+// Give a traffic car a route: a random road-graph path to follow.
+export function assignRoute(car, city, rng) {
+  const target = city.nodes[rng.int(0, city.nodes.length - 1)];
+  const path = findPath(city, car.x, car.z, target.x, target.z);
+  car.route = path.length > 1 ? path : [{ x: target.x, z: target.z }];
+  car.routeIdx = 0;
 }
-export function updateTraffic(state, city, dt, rng) {
-  const p = state.player;
-  // Spawn ring around the player.
-  const traffic = state.vehicles.filter(v => v.driver === 'traffic');
-  if (traffic.length < TRAFFIC_MAX && state.vehicles.length < 70 && rng() < 0.3) {
-    const v = spawnTrafficCar(state, city, rng);
-    const node = city.nodes[Math.floor(rng() * city.nodes.length)];
-    v.x = node.x + (rng() - 0.5) * 6; v.z = node.z + (rng() - 0.5) * 6;
-    v.heading = rng() * Math.PI * 2;
-    v.path = findPath(city, v.x, v.z, city.nodes[Math.floor(rng() * city.nodes.length)].x, city.nodes[Math.floor(rng() * city.nodes.length)].z);
-    v.pathI = 0; v.temper = 0.85 + rng() * 0.27; v.blocked = 0; v.panic = 0;
-    state.vehicles.push(v);
+
+// Is there a pedestrian in front of this car within `ahead` units?
+function pedAhead(state, car, ahead) {
+  const fx = Math.sin(car.heading);
+  const fz = Math.cos(car.heading);
+  for (const ped of state.peds) {
+    if (ped.down) continue;
+    const dx = ped.x - car.x;
+    const dz = ped.z - car.z;
+    const along = dx * fx + dz * fz;
+    if (along < 0 || along > ahead) continue;
+    const side = Math.abs(dx * fz - dz * fx);
+    if (side < 4) return ped;
   }
-  for (const v of state.vehicles) {
-    if (v.driver !== 'traffic') continue;
-    if (!v.path || v.pathI >= v.path.length) {
-      v.path = findPath(city, v.x, v.z, city.nodes[Math.floor(rng() * city.nodes.length)].x, city.nodes[Math.floor(rng() * city.nodes.length)].z);
-      v.pathI = 0;
+  return null;
+}
+
+// Is there a slow car ahead?
+function carAhead(state, car, ahead) {
+  const fx = Math.sin(car.heading);
+  const fz = Math.cos(car.heading);
+  for (const other of state.vehicles) {
+    if (other.id === car.id || other.parked) continue;
+    const dx = other.x - car.x;
+    const dz = other.z - car.z;
+    const along = dx * fx + dz * fz;
+    if (along < 0 || along > ahead) continue;
+    const side = Math.abs(dx * fz - dz * fx);
+    if (side < 3.5) return other;
+  }
+  return null;
+}
+
+// Advance all traffic cars one step. 'vulture' cars (the fleeing car in
+// job 4) follow their route the same way, a little faster.
+export function updateTraffic(state, city, dt, rng) {
+  for (const car of state.vehicles) {
+    if (car.driver !== 'traffic' && car.driver !== 'vulture') continue;
+    if (!car.route || car.routeIdx >= car.route.length) {
+      assignRoute(car, city, rng);
+      continue;
     }
-    const target = v.path[v.pathI];
-    const dx = target.x - v.x, dz = target.z - v.z;
+    const wp = car.route[car.routeIdx];
+    const dx = wp.x - car.x;
+    const dz = wp.z - car.z;
     const d = Math.hypot(dx, dz);
-    if (d < 6) { v.pathI += 1; continue; }
-    const wantHeading = Math.atan2(dx, dz);
-    let dh = wantHeading - v.heading;
+    if (d < 8) {
+      car.routeIdx += 1;
+      continue;
+    }
+    const want = Math.atan2(dx, dz);
+    let dh = want - car.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;
     while (dh < -Math.PI) dh += Math.PI * 2;
-    v.heading += Math.max(-1.6 * dt, Math.min(1.6 * dt, dh));
-    // Red light: stop before the intersection.
-    let stop = false;
-    for (const light of city.trafficLights) {
-      if (dist2(light.x, light.z, v.x, v.z) < 400 && lightState(city, light, state.time) === 'red' && d < 30) { stop = true; break; }
-    }
-    // Blocked by the player or another car ahead.
-    let blocked = false;
-    for (const o of state.vehicles) {
-      if (o === v) continue;
-      const aheadX = v.x + Math.sin(v.heading) * 8, aheadZ = v.z + Math.cos(v.heading) * 8;
-      if (dist2(o.x, o.z, aheadX, aheadZ) < 25) { blocked = true; break; }
-    }
-    const pd = Math.hypot(p.x - v.x, p.z - v.z);
-    if (pd < 10 && !p.onFoot) blocked = true;
-    // Brake for pedestrians in the path ahead (player on foot or any alive
-    // ped within 5 units of the point 8 units ahead of the car).
-    if (!blocked) {
-      const aheadX = v.x + Math.sin(v.heading) * 8, aheadZ = v.z + Math.cos(v.heading) * 8;
-      if (p.onFoot && dist2(p.x, p.z, aheadX, aheadZ) < 25) blocked = true;
-      else for (const q of state.peds) {
-        if (q.alive && dist2(q.x, q.z, aheadX, aheadZ) < 25) { blocked = true; break; }
-      }
-    }
-    if (blocked) v.blocked += dt; else v.blocked = 0;
-    if (v.blocked > 4 && !v.honked) { v.honked = true; state.notices.push('Honk! Traffic jam ahead of you.'); }
-    if (!blocked) v.honked = false;
-    const cruise = (SPEEDS.avenue + (v.temper - 1) * 4) * (v.panic > 0 ? 1.35 : 1);
-    if (stop || blocked) v.speed = Math.max(0, v.speed - 20 * dt);
-    else v.speed = Math.min(cruise, v.speed + 8 * dt);
-    v.x += Math.sin(v.heading) * v.speed * dt;
-    v.z += Math.cos(v.heading) * v.speed * dt;
-    if (v.panic > 0) v.panic -= dt;
-    // Despawn far behind the player.
-    if (pd > 420) { v.driver = null; v.parked = true; v.speed = 0; }
-  }
-  // Shots panic nearby traffic.
-  if (state._shotFired) {
-    for (const v of state.vehicles) if (v.driver === 'traffic' && dist2(v.x, v.z, p.x, p.z) < 2500) v.panic = 3;
-    state._shotFired = false;
+    // Steer toward the waypoint.
+    car.heading += clamp(dh, -1.6 * dt, 1.6 * dt);
+    // Brake for peds and slow cars ahead.
+    const ped = pedAhead(state, car, 14);
+    const ahead = carAhead(state, car, 16);
+    let targetSpeed = car.driver === 'vulture' ? 26 : 13;
+    if (ped) targetSpeed = 0;
+    else if (ahead) targetSpeed = Math.min(targetSpeed, Math.abs(ahead.speed || 0));
+    // Panic: the player is ramming or shooting nearby.
+    const playerNear = Math.sqrt(dist2(car.x, car.z, state.player.x, state.player.z)) < 12;
+    if (playerNear && state.wanted.level > 0) targetSpeed = 20;
+    const accel = targetSpeed > Math.abs(car.speed) ? 10 : 22;
+    if (Math.abs(car.speed) < targetSpeed) car.speed += accel * dt;
+    else car.speed -= accel * dt;
+    car.speed = clamp(car.speed, 0, 22);
+    car.x += Math.sin(car.heading) * car.speed * dt;
+    car.z += Math.cos(car.heading) * car.speed * dt;
+    car.x = clamp(car.x, -315, 315);
+    car.z = clamp(car.z, -235, 235);
   }
 }

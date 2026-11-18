@@ -1,99 +1,189 @@
-// Vehicle definitions + arcade driving physics (x-z plane). Pure sim.
-import { VEHICLES } from './data.js';
-import { clamp, dist2 } from './random.js';
-import { buildingAt } from './city.js';
+// vehicles.js — cars. Arcade physics: accelerate, steer, brake, reverse,
+// handbrake drift. Entering a parked car you do not own is theft (witnessed
+// heat when a ped is watching). Damage makes smoke; enough damage explodes.
 
-export function vehicleDef(id) { return VEHICLES.find(v => v.id === id); }
-export function createVehicleState(id, model, x, z, heading, color, parked) {
-  const def = vehicleDef(model);
-  return { id, model, def, x, z, heading, speed: 0, color: color ?? 0x888888, hp: def.hp, parked: !!parked, driver: null, smoke: 0, siren: false, blinker: 0 };
+import { VEHICLES, CAR_MODELS } from './data.js';
+import { dist2, clamp, wrapAngle } from './random.js';
+import { CAR, WORLD } from './config.js';
+import { addWantedHeat } from './weapons.js';
+import { buildingAt, onRoad } from './city.js';
+
+// Spawn the vehicle fleet: parked cars from the city plus moving traffic.
+export function createVehicles(city, rng) {
+  const vehicles = [];
+  let id = 0;
+  for (const pk of city.parked) {
+    vehicles.push({
+      id: id++,
+      model: pk.model,
+      x: pk.x,
+      z: pk.z,
+      heading: pk.heading,
+      speed: 0,
+      parked: true,
+      driver: null,
+      health: 100,
+      smoke: 0,
+      steer: 0,
+      color: vehicleColor(pk.model, rng),
+    });
+  }
+  // Traffic cars, spread across the road grid.
+  for (let i = 0; i < 14; i++) {
+    const node = city.nodes[rng.int(0, city.nodes.length - 1)];
+    vehicles.push({
+      id: id++,
+      model: rng.pick(CAR_MODELS),
+      x: node.x + rng.range(-4, 4),
+      z: node.z + rng.range(-4, 4),
+      heading: rng.range(0, Math.PI * 2),
+      speed: rng.range(8, 16),
+      parked: false,
+      driver: 'traffic',
+      health: 100,
+      smoke: 0,
+      steer: 0,
+      color: vehicleColor('sedan', rng),
+      route: null,
+      routeIdx: 0,
+    });
+  }
+  return vehicles;
 }
-export function nearestVehicle(state, x, z, maxD) {
-  let best = null, bd = maxD * maxD;
+
+function vehicleColor(model, rng) {
+  const def = VEHICLES.find((v) => v.model === model);
+  if (def) return def.color;
+  return rng.pick(['#b8452e', '#2e6da4', '#3f7a4a', '#c9a227', '#8a8a8a']);
+}
+
+// The nearest vehicle to a point (any kind, parked or moving).
+export function nearestVehicle(state, x, z) {
+  let best = null;
+  let bd = Infinity;
   for (const v of state.vehicles) {
     const d = dist2(v.x, v.z, x, z);
     if (d < bd) { bd = d; best = v; }
   }
   return best;
 }
-export function enterVehicle(state, v, rng) {
-  const p = state.player;
-  if (v.def.locked) { state.notices.push('Bus is locked. Can\'t be stolen.'); return false; }
-  const witnessed = state.peds.some(q => q.alive && dist2(q.x, q.z, p.x, p.z) < 90000) || state.cops.some(c => dist2(c.x, c.z, p.x, p.z) < 270400);
-  if (v.parked || !v.driver) {
-    if (v.driver === 'civilian') {
-      // Driver flees on foot.
-      v.driver = null;
-      state.stats.steals += 1;
-      if (witnessed) { state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat)); state.wanted.spotted = true; }
-    } else if (v.parked) {
-      // Stealing a parked car is still a crime when someone sees it.
-      state.stats.steals += 1;
-      if (witnessed) { state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat)); state.wanted.spotted = true; }
-    }
-  } else if (v.driver === 'civilian') {
-    v.driver = null; state.stats.steals += 1;
-    if (witnessed) { state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat)); state.wanted.spotted = true; }
+
+// The nearest drivable parked car to a point.
+export function nearestParkedCar(state, x, z, maxDist = 7) {
+  let best = null;
+  let bd = maxDist * maxDist;
+  for (const v of state.vehicles) {
+    if (!v.parked) continue;
+    if (!CAR_MODELS.includes(v.model)) continue;
+    const d = dist2(v.x, v.z, x, z);
+    if (d < bd) { bd = d; best = v; }
   }
-  if (v.model === 'cruiser' && state.wanted.level > 0) {
-    state.wanted.heat = clamp(state.wanted.heat + 0.25, 0, 5.99); state.wanted.level = Math.min(5, Math.floor(state.wanted.heat));
-  }
-  v.parked = false; v.driver = 'player';
-  p.onFoot = false; p.vehicleId = v.id; p.x = v.x; p.z = v.z; p.heading = v.heading;
-  return true;
+  return best;
 }
+
+// Player gets in the nearest car/boat/heli. Returns the vehicle or null.
+// Stealing a parked car with a ped watching raises wanted heat.
+export function enterVehicle(state, city) {
+  const p = state.player;
+  if (!p.onFoot) return null;
+  const car = nearestParkedCar(state, p.x, p.z, 7);
+  if (car) {
+    const witnessed = state.peds.some((ped) => !ped.down && dist2(ped.x, ped.z, car.x, car.z) < 26 * 26);
+    if (car.model === 'bus') {
+      if (state.notices) state.notices.push("Bus locked. Can't steal it.");
+      return null;
+    }
+    car.parked = false;
+    car.driver = 'player';
+    p.onFoot = false;
+    p.vehicleId = car.id;
+    p.speed = 0;
+    if (witnessed) {
+      addWantedHeat(state, 1.2);
+      if (state.notices) state.notices.push('Witnessed! The cops are coming.');
+    }
+    state.stats.stolen = (state.stats.stolen || 0) + 1;
+    return car;
+  }
+  return null;
+}
+
+// Player gets out of the current vehicle.
 export function exitVehicle(state) {
   const p = state.player;
-  const v = state.vehicles.find(q => q.id === p.vehicleId);
-  if (!v) { p.onFoot = true; p.vehicleId = -1; return; }
-  v.driver = null; v.speed = 0;
-  p.onFoot = true; p.vehicleId = -1;
-  p.x = v.x + Math.cos(v.heading) * 3; p.z = v.z - Math.sin(v.heading) * 3;
-  p.heading = v.heading;
+  if (p.onFoot) return;
+  const v = state.vehicles.find((q) => q.id === p.vehicleId);
+  if (v) {
+    v.driver = null;
+    v.speed = 0;
+    v.parked = true;
+    // Step out to the side so the player is not inside the car.
+    p.x = v.x + Math.cos(v.heading) * 3;
+    p.z = v.z - Math.sin(v.heading) * 3;
+  }
+  p.onFoot = true;
+  p.vehicleId = -1;
+  p.speed = 0;
 }
-export function updateVehicle(state, city, dt, input) {
-  const p = state.player;
-  const v = state.vehicles.find(q => q.id === p.vehicleId);
-  if (!v) { p.onFoot = true; p.vehicleId = -1; return; }
-  const grip = state.weather.kind === 'rain' ? 0.85 : 1;
-  const top = v.def.top * (input.run ? 1 : 1);
-  if (input.forward) v.speed += v.def.accel * dt;
-  else if (input.back) v.speed -= v.def.accel * 0.7 * dt;
-  else v.speed -= Math.sign(v.speed) * 6 * dt;
-  if (input.handbrake) { v.speed *= (1 - 1.4 * dt); }
-  v.speed = clamp(v.speed, -10, top);
-  if (Math.abs(v.speed) < 0.05 && !input.forward && !input.back) v.speed = 0;
-  const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  const turnRate = 2.2 * v.def.grip * grip / (1 + Math.abs(v.speed) * 0.025);
-  v.heading += steer * turnRate * dt * (v.speed >= 0 ? 1 : -1) * (input.handbrake ? 1.5 : 1);
+
+// Arcade driving for one vehicle for one step. `grip` is 1 normally,
+// 0.85 in rain. Returns nothing; mutates the vehicle.
+export function driveVehicle(v, input, dt, city, grip = 1) {
+  const def = VEHICLES.find((q) => q.model === v.model) || VEHICLES[0];
+  const top = def.top;
+  if (input.forward) v.speed += def.accel * dt;
+  if (input.back) {
+    if (v.speed > 0.5) v.speed -= CAR.brake * dt;
+    else v.speed -= CAR.reverseAccel * dt;
+  }
+  if (!input.forward && !input.back) {
+    // Coast down.
+    v.speed -= Math.sign(v.speed) * 6 * dt;
+    if (Math.abs(v.speed) < 0.2) v.speed = 0;
+  }
+  const maxF = input.handbrake ? top * 0.7 : top;
+  v.speed = clamp(v.speed, -CAR.reverseTop, maxF);
+  // Steering: sharper at low speed, looser at high speed.
+  const steerAmount = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+  const speedK = clamp(Math.abs(v.speed) / top, 0, 1);
+  const turn = steerAmount * CAR.turnRate * (0.5 + 0.5 * (1 - speedK)) * grip;
+  v.steer = steerAmount;
+  if (Math.abs(v.speed) > 0.1) {
+    v.heading += turn * dt * Math.sign(v.speed);
+  }
+  // Handbrake breaks grip: the tail steps out (extra yaw, speed bleed).
+  if (input.handbrake && Math.abs(v.speed) > 8) {
+    v.heading += steerAmount * 0.9 * dt * Math.sign(v.speed);
+    v.speed *= 1 - 0.6 * dt;
+  }
   const nx = v.x + Math.sin(v.heading) * v.speed * dt;
   const nz = v.z + Math.cos(v.heading) * v.speed * dt;
-  if (buildingAt(city, nx, nz)) {
-    // Slide along the wall instead of wedging: try x-only, then z-only.
-    if (!buildingAt(city, nx, v.z)) { v.x = nx; }
-    else if (!buildingAt(city, v.x, nz)) { v.z = nz; }
-    else { v.speed *= -0.25; state.mission.stats.crashes += 1; if (Math.abs(v.speed) > 8) v.hp -= 5; }
+  // Building collision: slide along the wall instead of stopping dead.
+  const hit = buildingAt(city, nx, nz);
+  if (hit) {
+    // Try moving on x only, then z only (axis slide).
+    if (!buildingAt(city, nx, v.z)) {
+      v.x = nx;
+    } else if (!buildingAt(city, v.x, nz)) {
+      v.z = nz;
+    } else {
+      v.speed *= 0.4;
+    }
   } else {
-    v.x = nx; v.z = nz;
+    v.x = nx;
+    v.z = nz;
   }
-  // Car-car bumps.
-  for (const o of state.vehicles) {
-    if (o === v || o.driver === 'traffic') continue;
-    if (dist2(o.x, o.z, v.x, v.z) < 16) { v.speed *= 0.7; o.speed = (o.speed || 0) * 0.5; }
+  v.x = clamp(v.x, WORLD.minX + 4, WORLD.maxX - 4);
+  v.z = clamp(v.z, WORLD.minZ + 4, WORLD.maxZ - 4);
+  // Damage smoke grows as health falls.
+  v.smoke = v.health < 55 ? clamp((55 - v.health) / 55, 0, 1) : 0;
+  if (v.health <= 0 && !v.exploded) {
+    v.exploded = true;
   }
-  if (v.x < -318) v.x = -318; if (v.x > 318) v.x = 318;
-  if (v.z < -238) v.z = -238; if (v.z > 278) v.z = 278;
-  p.x = v.x; p.z = v.z; p.heading = v.heading; p.speed = Math.abs(v.speed);
-  state.mission.stats.topSpeed = Math.max(state.mission.stats.topSpeed, Math.abs(v.speed) * 3.6);
-  if (v.hp < 40) v.smoke = Math.min(1, v.smoke + dt);
-  if (v.hp <= 0) { v.hp = 0; exitVehicle(state); state.notices.push('Mobilmu meledak!'); }
-  if (input.enterVehicle) exitVehicle(state);
 }
-export function spawnTrafficCar(state, city, rng) {
-  const models = VEHICLES.filter(v => v.traffic);
-  const model = models[Math.floor(rng() * models.length)];
-  const id = state.vehicles.length;
-  const v = createVehicleState(id, model.id, 0, 0, 0, Math.floor(rng() * 0xffffff), false);
-  v.driver = 'traffic';
-  return v;
+
+// Damage a vehicle. At 0 health it explodes (handled by world.js).
+export function damageVehicle(v, amount) {
+  v.health = Math.max(0, v.health - amount);
+  return v.health <= 0;
 }

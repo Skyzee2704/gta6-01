@@ -1,49 +1,144 @@
-// Portraits of the 6 cast members, drawn in code on a 2D canvas — no image
-// files. Each portrait is skin + hair + clothes + one signature detail, so
-// it reads at a glance in dialogue boxes, the title screen and chapters.
-import { CAST } from './data.js';
+// portraits.js — the cast portraits. Six characters, each drawn as a
+// flat vector portrait on a canvas (no image files, no network). The
+// portraits are used on the title screen and in dialogue boxes.
 
-export function drawPortrait(ctx, castId, x, y, size) {
-  const c = CAST.find(q => q.id === castId) || CAST[0];
-  const r = size / 2;
-  ctx.save();
-  ctx.beginPath(); ctx.arc(x + r, y + r, r, 0, Math.PI * 2); ctx.clip();
-  // Backdrop gradient: plum at the top fading to deep navy, the same
-  // palette as the dialogue boxes so the portrait sits in the frame.
-  const grad = ctx.createLinearGradient(x, y, x, y + size);
-  grad.addColorStop(0, '#3a2a4a'); grad.addColorStop(1, '#1a2a4a');
-  ctx.fillStyle = grad; ctx.fillRect(x, y, size, size);
-  // Shoulders / clothes.
-  ctx.fillStyle = c.cloth;
-  ctx.beginPath(); ctx.arc(x + r, y + size * 1.05, r * 0.95, Math.PI, 0); ctx.fill();
-  // Head.
-  ctx.fillStyle = c.skin;
-  ctx.beginPath(); ctx.arc(x + r, y + r * 0.85, r * 0.52, 0, Math.PI * 2); ctx.fill();
-  // Hair.
-  ctx.fillStyle = c.hair;
-  ctx.beginPath(); ctx.arc(x + r, y + r * 0.55, r * 0.5, Math.PI, 0); ctx.fill();
-  ctx.fillRect(x + r * 0.5, y + r * 0.45, r, r * 0.35);
+// Cast (matches data.js CAST).
+export const CAST = [
+  { id: 'milo', name: 'Milo Cruz', role: 'The driver', color: '#f5c518', bg: '#1a2a3a' },
+  { id: 'vera', name: 'Vera Sol', role: 'The fixer', color: '#ff8ad0', bg: '#3a1a2a' },
+  { id: 'dante', name: 'Dante Rook', role: 'The arms dealer', color: '#ff5555', bg: '#2a1a1a' },
+  { id: 'lena', name: 'Lena Voss', role: 'The racer', color: '#5ad0ff', bg: '#1a2a3a' },
+  { id: 'max', name: 'Max Holt', role: 'The mechanic', color: '#7dff8a', bg: '#1a3a1a' },
+  { id: 'sable', name: 'Sable', role: 'The boss', color: '#c9a0ff', bg: '#2a1a3a' },
+];
+
+// Draw one portrait on a canvas. `style` picks the face: skin tone,
+// hair, and a signature accessory (glasses, bandana, cap, etc.).
+export function drawPortrait(canvas, castId, size = 128) {
+  const cast = CAST.find(c => c.id === castId) || CAST[0];
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const S = size;
+  // Background.
+  ctx.fillStyle = cast.bg;
+  ctx.fillRect(0, 0, S, S);
+  // A radial glow behind the head.
+  const grad = ctx.createRadialGradient(S / 2, S * 0.45, 4, S / 2, S * 0.45, S * 0.6);
+  grad.addColorStop(0, cast.color + '55');
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+  // Shoulders (jacket).
+  ctx.fillStyle = cast.color;
+  ctx.beginPath();
+  ctx.moveTo(S * 0.15, S);
+  ctx.quadraticCurveTo(S * 0.2, S * 0.72, S * 0.5, S * 0.7);
+  ctx.quadraticCurveTo(S * 0.8, S * 0.72, S * 0.85, S);
+  ctx.closePath();
+  ctx.fill();
+  // Neck.
+  ctx.fillStyle = '#d8a878';
+  ctx.fillRect(S * 0.44, S * 0.58, S * 0.12, S * 0.14);
+  // Head (an egg shape, like the 3D character).
+  ctx.fillStyle = '#e8b98a';
+  ctx.beginPath();
+  ctx.ellipse(S * 0.5, S * 0.42, S * 0.17, S * 0.21, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Hair / signature.
+  ctx.fillStyle = '#1a1a1a';
+  if (cast.id === 'milo') {
+    // Short dark hair + a yellow bandana.
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.24, S * 0.17, S * 0.09, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#f5c518';
+    ctx.fillRect(S * 0.33, S * 0.26, S * 0.34, S * 0.05);
+  } else if (cast.id === 'vera') {
+    // Long hair falling past the shoulders.
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.3, S * 0.19, S * 0.14, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(S * 0.31, S * 0.3, S * 0.06, S * 0.35);
+    ctx.fillRect(S * 0.63, S * 0.3, S * 0.06, S * 0.35);
+  } else if (cast.id === 'dante') {
+    // Slicked hair + sunglasses.
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.25, S * 0.16, S * 0.07, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(S * 0.35, S * 0.38, S * 0.12, S * 0.06);
+    ctx.fillRect(S * 0.53, S * 0.38, S * 0.12, S * 0.06);
+  } else if (cast.id === 'lena') {
+    // A cap + ponytail.
+    ctx.fillStyle = '#5ad0ff';
+    ctx.beginPath();
+    ctx.arc(S * 0.5, S * 0.28, S * 0.17, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(S * 0.33, S * 0.26, S * 0.34, S * 0.04);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(S * 0.68, S * 0.5, S * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (cast.id === 'max') {
+    // A beanie + beard.
+    ctx.fillStyle = '#7dff8a';
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.24, S * 0.17, S * 0.1, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#3a2a1a';
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.56, S * 0.12, S * 0.08, 0, 0, Math.PI);
+    ctx.fill();
+  } else {
+    // Sable: a wide-brim hat + shades.
+    ctx.fillStyle = '#c9a0ff';
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, S * 0.26, S * 0.24, S * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(S * 0.4, S * 0.16, S * 0.2, S * 0.12);
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(S * 0.35, S * 0.38, S * 0.12, S * 0.06);
+    ctx.fillRect(S * 0.53, S * 0.38, S * 0.12, S * 0.06);
+  }
   // Eyes.
-  ctx.fillStyle = '#111';
-  ctx.fillRect(x + r * 0.68, y + r * 0.8, r * 0.12, r * 0.08);
-  ctx.fillRect(x + r * 1.2, y + r * 0.8, r * 0.12, r * 0.08);
-  // Signature detail.
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.max(9, size * 0.09)}px system-ui, sans-serif`;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.arc(S * 0.43, S * 0.42, S * 0.018, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(S * 0.57, S * 0.42, S * 0.018, 0, Math.PI * 2);
+  ctx.fill();
+  // Mouth.
+  ctx.strokeStyle = '#8a5a3a';
+  ctx.lineWidth = S * 0.012;
+  ctx.beginPath();
+  ctx.arc(S * 0.5, S * 0.52, S * 0.05, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  // Name plate.
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(0, S * 0.86, S, S * 0.14);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${Math.round(S * 0.07)}px sans-serif`;
   ctx.textAlign = 'center';
-  if (c.id === 'rosa') { ctx.fillStyle = '#c0392b'; ctx.fillRect(x + r * 0.55, y + r * 0.42, r * 0.9, r * 0.16); }
-  if (c.id === 'milo') { ctx.fillStyle = '#ffc94d'; ctx.fillRect(x + r * 0.3, y + size * 0.78, r * 1.4, r * 0.3); }
-  if (c.id === 'kane') { ctx.strokeStyle = '#ddd'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x + r, y + size * 0.85, r * 0.4, 0.2, Math.PI - 0.2); ctx.stroke(); }
-  if (c.id === 'juno') { ctx.fillStyle = '#111'; ctx.fillRect(x + r * 0.6, y + r * 0.72, r * 0.35, r * 0.22); ctx.fillRect(x + r * 1.05, y + r * 0.72, r * 0.35, r * 0.22); }
-  if (c.id === 'mags') { ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x + r * 0.5, y + r * 0.1, r, r * 0.22); ctx.fillStyle = '#888'; ctx.fillRect(x + r * 0.8, y + r * 1.05, r * 0.4, r * 0.1); }
-  if (c.id === 'benning') { ctx.fillStyle = '#2a4a7a'; ctx.fillRect(x + r * 0.5, y + r * 0.12, r, r * 0.24); }
-  ctx.restore();
-  ctx.fillStyle = '#f5ead2';
-  ctx.font = `bold ${Math.max(10, size * 0.11)}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText(c.name, x + r, y + size + size * 0.14);
-  ctx.fillStyle = '#9a938a';
-  ctx.font = `${Math.max(9, size * 0.085)}px system-ui, sans-serif`;
-  ctx.fillText(c.role, x + r, y + size + size * 0.28);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(cast.name.toUpperCase(), S / 2, S * 0.93);
+  return canvas;
 }
-export function castById(id) { return CAST.find(c => c.id === id); }
+
+// Render all six portraits into a container (title screen cast row).
+export function renderCastRow(container) {
+  container.innerHTML = '';
+  for (const c of CAST) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cast-card';
+    const canvas = document.createElement('canvas');
+    drawPortrait(canvas, c.id, 128);
+    const label = document.createElement('div');
+    label.className = 'cast-role';
+    label.textContent = c.role;
+    wrap.appendChild(canvas);
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+  }
+}

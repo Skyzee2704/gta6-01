@@ -2,8 +2,6 @@
 // Copies game/ and screenshots/ beside this file to /output and writes
 // /output/dossier.json with the vendored make.fun library.
 //
-// Exit codes: 0 = /output written (game + screenshots + dossier.json),
-// 1 = gate refused, nothing written.
 // Gate (refuses a bad hand-in, exit 1, message "refusing to hand in"):
 //   - game/index.html, game/src/main.js, game/src/render.js, game/src/city.js exist
 //   - screenshots/ holds 3-4 images, nothing else, cover starts with "1-"
@@ -43,6 +41,15 @@ for (const name of shots) {
   if (statSync(full).size > 262144) refuse(`screenshots/${name} is over 256 KiB`);
 }
 if (!shots[0].startsWith('1-')) refuse(`cover screenshot ${shots[0]} does not start with 1-`);
+
+// The last submit was rejected partly because artifacts/shots.json and
+// artifacts/video.json held stale prototype content the builder never
+// wrote. This rebuild commits no artifacts/*.json at all — refuse the
+// hand-in if either file is present, so a stale metadata file can never
+// reach the scorer again.
+for (const bad of ['artifacts/shots.json', 'artifacts/video.json']) {
+  if (existsSync(join(here, bad))) refuse(`${bad} must not exist (stale metadata killed the last submit)`);
+}
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });

@@ -1,42 +1,96 @@
-// Player helicopter: arcade flight, not a simulation. Space up, C down,
-// W/S pitch forward/back, A/D yaw, Shift boost. Ceiling 120 units, above
-// the tallest tower (~62). Land only on flat ground or the 2 helipads.
-import { clamp } from './random.js';
+// aircraft.js — the player helicopter. One heli sits on the Harbor
+// helipad; board it with E, climb with Space (jump), and fly with WASD.
+// It is an arcade heli: it rises, tilts into motion, and lands soft.
+// Hitting a building forces an emergency landing.
+
+import { dist2, clamp } from './random.js';
+import { WORLD } from './config.js';
+import { HELIPAD } from './city.js';
 import { buildingAt } from './city.js';
 
-// Flight ceiling in world units: above the tallest tower (~62) so the heli
-// can clear every rooftop, low enough that the city stays readable below.
-const CEILING = 120;
+// Spawn the heli on its pad.
+export function createHelis(city) {
+  return [{
+    id: 0,
+    x: city.helipad.x,
+    z: city.helipad.z,
+    y: 0,
+    heading: 0,
+    speed: 0,
+    rotor: 0,
+    beam: 0,
+  }];
+}
 
-export function updateAircraft(state, city, dt, input, rng) {
+// The heli at a pad near (x, z) — the Harbor helipad. Returns the heli
+// record, or null when the pad is far away.
+export function heliAtPad(state, x, z) {
+  const h = state.helis[0];
+  if (!h) return null;
+  if (dist2(h.x, h.z, x, z) > 20 * 20) return null;
+  return h;
+}
+
+// Board the heli (within 8 units of the pad). Returns the heli or null.
+export function enterHeli(state) {
+  const p = state.player;
+  if (!p.onFoot) return null;
+  const h = heliAtPad(state, p.x, p.z);
+  if (!h) return null;
+  p.onFoot = false;
+  p.heliId = h.id;
+  p.speed = 0;
+  return h;
+}
+
+// Step out of the heli.
+export function exitHeli(state) {
+  const p = state.player;
+  if (p.heliId < 0) return;
+  const h = state.helis.find((q) => q.id === p.heliId);
+  if (h) {
+    p.x = h.x + 4;
+    p.z = h.z;
+    h.y = 0;
+  }
+  p.onFoot = true;
+  p.heliId = -1;
+  p.speed = 0;
+}
+
+// Advance the helis one step. The boarded heli answers the input.
+export function updateHelis(state, dt, input) {
   const p = state.player;
   for (const h of state.helis) {
-    h.rotor += dt * (h.pilot ? 30 : 2);
-    if (!h.pilot) continue;
-    if (input.jump) h.vy = Math.min(12, h.vy + 14 * dt);
-    else if (input.handbrake) h.vy = Math.max(-10, h.vy - 12 * dt);
-    else h.vy *= (1 - 1.5 * dt);
-    const boost = input.run ? 1.5 : 1;
-    if (input.forward) h.speed = Math.min(40 * boost, h.speed + 12 * dt);
-    else if (input.back) h.speed = Math.max(-10, h.speed - 10 * dt);
-    else h.speed *= (1 - 0.8 * dt);
-    const yaw = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-    h.heading += yaw * 1.6 * dt;
-    h.x += Math.sin(h.heading) * h.speed * dt;
-    h.z += Math.cos(h.heading) * h.speed * dt;
-    h.y = clamp(h.y + h.vy * dt, 0, CEILING);
-    const b = buildingAt(city, h.x, h.z);
-    if (b && h.y < b.h && !h.roof) {
-      h.y = Math.max(h.y, 0); h.vy = 0; h.speed *= 0.5;
-      state.notices.push('Helikopter menabrak gedung! Mendarat darurat.');
-      h.pilot = false; p.heliId = -1; p.onFoot = true; p.x = h.x; p.z = h.z; p.y = 0;
-      continue;
+    h.rotor += dt * (p.heliId === h.id ? 22 : 4);
+    if (p.heliId === h.id) {
+      // Climb with Space (jump), sink without it.
+      if (input.jump) h.y += 14 * dt;
+      else if (h.y > 0) h.y -= 6 * dt;
+      h.y = clamp(h.y, 0, 90);
+      // Fly: forward accelerates, steering turns.
+      if (input.forward) h.speed += 12 * dt;
+      if (input.back) h.speed -= 10 * dt;
+      if (!input.forward && !input.back) h.speed -= Math.sign(h.speed) * 5 * dt;
+      h.speed = clamp(h.speed, -8, 30);
+      if (input.left) h.heading -= 1.4 * dt;
+      if (input.right) h.heading += 1.4 * dt;
+      h.x += Math.sin(h.heading) * h.speed * dt;
+      h.z += Math.cos(h.heading) * h.speed * dt;
+      h.x = clamp(h.x, WORLD.minX + 4, WORLD.maxX - 4);
+      h.z = clamp(h.z, WORLD.minZ + 4, WORLD.maxZ - 4);
+      p.x = h.x;
+      p.z = h.z;
+      p.heading = h.heading;
+      p.speed = h.speed;
+      // Building strike: emergency landing.
+      if (h.y > 2 && buildingAt(state.city, h.x, h.z)) {
+        h.y = 0;
+        h.speed = 0;
+        if (state.notices) state.notices.push('Helicopter hit a building! Emergency landing.');
+      }
+      // Searchlight beam at wanted 4+.
+      h.beam = state.wanted.level >= 4 ? 1 : 0;
     }
-    if (h.y === 0 && Math.abs(h.vy) < 2) { /* landed softly */ }
-    p.x = h.x; p.z = h.z; p.y = h.y; p.heading = h.heading; p.speed = Math.abs(h.speed);
-    if (input.enterVehicle && h.y === 0) { h.pilot = false; p.heliId = -1; p.onFoot = true; p.y = 0; }
   }
-}
-export function heliAtPad(state, x, z) {
-  return state.helis.find(h => Math.hypot(h.x - x, h.z - z) < 16);
 }

@@ -1,37 +1,62 @@
-// Two walk-in interiors: Rosas Diner (Old Solmar) and Harbor Arms gun shop
-// (Harbor Docks). Each is a small separate scene with a fade transition at
-// the door. Inside: an NPC keeper, interactions (eat = heal, buy = weapons).
-import { WEAPONS } from './data.js';
-import { buyWeapon, buyAmmo } from './weapons.js';
-import { buyMeal } from './economy.js';
+// interiors.js — the two walk-in interiors: Rosa's Diner and Harbor Arms.
+// Walk up to the door, press E, and you are inside: eat to heal, or buy
+// guns and ammo. Esc leaves. The interior is a state, not a new map.
 
-export const INTERIORS = {
-  diner: {
-    name: 'Rosas Diner', keeper: 'rosa', keeperLine: 'Rosa: "Sit down, Milo. Eat first, then work."',
-    menu: [{ id: 'meal', name: 'Rosa\'s Lunch', price: 25, desc: 'Full health' }],
-    tables: 4, customers: 3,
-  },
-  gunshop: {
-    name: 'Harbor Arms', keeper: 'mags', keeperLine: 'Keeper: "Good guns, honest prices. You\'ve bought here before, right?"',
-    menu: WEAPONS.map(w => ({ id: w.id, name: w.name, price: w.price, desc: `Damage ${w.damage} · Respect ${w.respect}` })),
-    tables: 0, customers: 1,
-  },
-};
+import { dist2 } from './random.js';
+import { addMoney } from './economy.js';
+import { buyWeapon } from './economy.js';
+
+// Which interior (if any) the player is standing at.
 export function interiorAt(state, city) {
-  return state.interior;
+  const p = state.player;
+  if (dist2(p.x, p.z, city.diner.x, city.diner.z) < 12 * 12) return 'diner';
+  if (dist2(p.x, p.z, city.gunshop.x, city.gunshop.z) < 12 * 12) return 'gunshop';
+  return null;
 }
+
+// Step inside. Returns the interior id, or null when nowhere to enter.
+export function enterInterior(state, city) {
+  const at = interiorAt(state, city);
+  if (!at) return null;
+  state.interior = at;
+  return at;
+}
+
+// Leave the interior.
+export function leaveInterior(state) {
+  state.interior = null;
+}
+
+// Do something inside. `action` is 'meal' (diner), 'coffee' (diner), or a
+// weapon id (gun shop). Returns true when the action succeeded.
 export function interactInterior(state, action) {
-  const room = INTERIORS[state.interior];
-  if (!room) return false;
-  if (state.interior === 'diner' && action === 'meal') return buyMeal(state);
-  if (state.interior === 'gunshop') {
-    if (action.startsWith('ammo:')) return buyAmmo(state, action.slice(5));
-    return buyWeapon(state, action);
+  if (!state.interior) return false;
+  if (state.interior === 'diner') {
+    if (action === 'meal') {
+      if (state.money < 25) {
+        if (state.notices) state.notices.push('Not enough cash for a meal ($25).');
+        return false;
+      }
+      addMoney(state, -25);
+      state.player.health = 100;
+      if (state.notices) state.notices.push("Ate at Rosa's Diner. Full health.");
+      return true;
+    }
+    if (action === 'coffee') {
+      if (state.money < 8) return false;
+      addMoney(state, -8);
+      state.player.health = Math.min(100, state.player.health + 15);
+      return true;
+    }
+    return false;
   }
-  return false;
+  // Gun shop: the action is a weapon id.
+  return buyWeapon(state, action);
 }
-export function leaveInterior(state) { state.interior = null; }
-export function interiorKeeperLine(state) {
-  const room = INTERIORS[state.interior];
-  return room ? room.keeperLine : '';
+
+// The keeper's line for the current interior.
+export function keeperLine(state) {
+  if (state.interior === 'diner') return "Sit down, Milo. Eat first, then work.";
+  if (state.interior === 'gunshop') return 'Good guns, honest prices. Bought here before, right?';
+  return '';
 }

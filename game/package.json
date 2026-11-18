@@ -1,6 +1,1 @@
-{
-  "type": "module",
-  "scripts": {
-    "test": "node ../tools/playtest.mjs && node ../tools/simCheck.mjs && node ../tools/missionCheck.mjs && node ../tools/cityCheck.mjs"
-  }
-}
+{"description":"SOLMAR 3D — Streets of Gold, a 3D open-world crime game for make.fun gta6-01","name":"solmar-3d","private":true,"type":"module","version":"3.0.0"}

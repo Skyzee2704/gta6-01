@@ -12,9 +12,7 @@ startMission(state, 1);
 state.wanted.heat = 4.2; state.wanted.level = 4; state.wanted.spotted = true;
 const t0 = process.hrtime.bigint();
 let maxWanted = 0, maxCops = 0, events = 0, nanAt = -1;
-// 120 seconds of sim (7200 fixed steps) at wanted 4.
-const STEPS = 7200;
-for (let i = 0; i < STEPS; i++) {
+for (let i = 0; i < 7200; i++) {
   const inp = emptyInput();
   inp.forward = true;
   inp.left = Math.sin(i * 0.01) > 0.3;
@@ -26,12 +24,17 @@ for (let i = 0; i < STEPS; i++) {
   if (i === 6000) { state.player.x = -260; state.player.z = 190; state.wanted.spotted = false; }
   maxWanted = Math.max(maxWanted, state.wanted.level);
   maxCops = Math.max(maxCops, state.cops.length);
-  const bad = [state.player, ...state.vehicles, ...state.peds].some(e => Number.isNaN(e.x) || Number.isNaN(e.z));
+  // NaN check: the player, every vehicle, every ped, AND every cop.
+  // (A cop without a speed once went NaN in the shot stager and poisoned
+  // the HUD distance — the cops are the ones that used to slip through.)
+  const bad = [state.player, ...state.vehicles, ...state.peds, ...state.cops].some(e => Number.isNaN(e.x) || Number.isNaN(e.z));
   if (bad && nanAt < 0) nanAt = i;
+  // The wanted level must stay in its 0-5 range.
+  if (state.wanted.level < 0 || state.wanted.level > 5) { console.error(`FAIL: wanted level ${state.wanted.level} out of range at step ${i}`); process.exit(1); }
 }
 const us = Number(process.hrtime.bigint() - t0) / 1000;
-const perStep = us / STEPS;
-console.log(`simCheck: ${STEPS} steps in ${us.toFixed(0)}us (${perStep.toFixed(2)}us/step)`);
+const perStep = us / 7200;
+console.log(`simCheck: 7200 steps in ${us.toFixed(0)}us (${perStep.toFixed(2)}us/step)`);
 console.log(`vehicles=${state.vehicles.length} peds=${state.peds.length} cops=${state.cops.length} particles=${state.particles.filter(p => p.active).length} maxWanted=${maxWanted} maxCops=${maxCops}`);
 console.log(`player hp=${state.player.health} money=$${state.money} mission=${state.mission.id} active=${state.mission.active} wanted=${state.wanted.level}`);
 if (nanAt >= 0) { console.error(`FAIL: NaN position at step ${nanAt}`); process.exit(1); }

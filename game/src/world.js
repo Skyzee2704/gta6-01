@@ -1,257 +1,325 @@
-// The sim: pure numbers, no THREE, no DOM, no window. Fixed step 1/60.
-// createWorld(seed) -> { state, city, rng, step, addHeat, ... }. The renderer
-// only reads state; it never writes it. Deterministic from seed 1.
-import { STEP, SEED, START_HOUR, PLAYER, ECONOMY } from './config.js';
-import { createRng, clamp, dist2 } from './random.js';
-import { createCity, buildingAt, clampToCity, inWater } from './city.js';
-import { CRIMES, respectLevel, WEAPONS } from './data.js';
-import { createVehicleState, updateVehicle, enterVehicle, exitVehicle, nearestVehicle } from './vehicles.js';
+// world.js — the simulation. One fixed step advances everything: the
+// clock, the player, the cars, the traffic, the peds, the police, the
+// enemies, the missions, the race, the weather, the particles.
+// Pure numbers: no DOM, no canvas, no THREE. The renderer only reads
+// this state and draws it.
+
+import { STEP, START_HOUR, MINUTES_PER_SECOND, SPAWN, WALK_SPEED, RUN_SPEED, WORLD } from './config.js';
+import { RNG, dist2, clamp, wrapAngle } from './random.js';
+import { createCity, buildingAt } from './city.js';
+import { createWanted, updateWanted, updatePolice, bustPlayer } from './police.js';
+import { createVehicles, driveVehicle, enterVehicle as carEnter, exitVehicle as carExit, nearestParkedCar } from './vehicles.js';
 import { updateTraffic } from './traffic.js';
-import { updatePeds, killPed } from './npc.js';
-import { updatePolice } from './police.js';
-import { updateMissions } from './missions.js';
-import { updateEnemies } from './combat.js';
-import { updateBoats } from './boats.js';
-import { updateWeather } from './weather.js';
-import { updateAircraft } from './aircraft.js';
-import { tickFireCooldown } from './weapons.js';
+import { createPeds, updatePeds } from './npc.js';
+import { updateEnemies, damagePlayer, pruneEnemies } from './combat.js';
+import { createMissionState, updateMissions } from './missions.js';
+import { createRaceState, updateRace, raceRivals } from './minigames.js';
+import { createWeather, updateWeather, gripFactor } from './weather.js';
+import { createDialogue, updateDialogue } from './dialogue.js';
+import { updateTapes, updateTaxi } from './side.js';
+import { createBoats, updateBoats, enterBoat, exitBoat, nearestBoat } from './boats.js';
+import { createHelis, updateHelis, enterHeli, exitHeli, heliAtPad } from './aircraft.js';
+import { enterInterior, leaveInterior } from './interiors.js';
+import { emptyInput } from './input.js';
+import { addWantedHeat, nextWeapon } from './weapons.js';
 
-export const EVENT_NONE = 0;
-export const EVENT_WASTED = 1;
-export const EVENT_BUSTED = 2;
-export const EVENT_MISSION_DONE = 4;
-export const EVENT_MISSION_FAIL = 8;
-export const EVENT_TAPE = 16;
-export const EVENT_ARREST = 32;
+// Event name the world emits when a mission completes.
+export const EVENT_MISSION_DONE = 'mission-done';
 
+// Re-export the input factory so the tests import it from here.
+export { emptyInput };
+
+// Build a fresh world from a seed. Returns { state, city, rng, step }.
 export function createWorld(seed) {
-  const rng = createRng(seed ?? SEED);
-  const city = createCity(seed ?? SEED);
+  const rng = new RNG(seed);
+  const city = createCity(seed);
   const state = {
-    seed: seed ?? SEED, time: 0, hour: START_HOUR, day: 1,
-    player: { x: -180, z: 60, y: 0, vy: 0, heading: 0, speed: 0, health: PLAYER.health, armor: 0, onFoot: true, vehicleId: -1, boatId: -1, heliId: -1, dead: false, busted: false, running: false, aiming: false },
-    money: 250, respect: 0, respectLevel: 0,
-    wanted: { heat: 0, level: 0, spotted: false, escape: 0, searchX: 0, searchZ: 0, searchR: 0 },
-    vehicles: [], peds: [], cops: [], enemies: [], particles: [], boats: [], helis: [],
-    weapons: { owned: { pistol: { mag: 12, reserve: 60 } }, current: 'pistol', wheelOpen: false },
-    mission: { id: 0, stage: 0, stageTimer: 0, active: false, done: [false, false, false, false, false, false], text: '', stats: { shots: 0, hits: 0, kills: 0, crashes: 0, topSpeed: 0, time: 0 } },
-    race: { active: false, id: null, checkpoint: 0, time: 0, best: {} },
-    taxi: { active: false, passenger: null, target: null, timer: 0, fare: 0 },
-    weather: { kind: 'clear', t: 0, transition: 0, rain: 0 },
-    interior: null, dialogue: [], notices: [], district: 'old', districtTimer: 0,
-    tapesTaken: 0, penthouseOwned: false, garage: [], savedAt: null,
-    stats: { distance: 0, steals: 0, escapes: 0, racesWon: 0, fares: 0 },
-    flags: { nightMission: false },
+    seed,
+    city,
+    time: 0,
+    hour: START_HOUR,
+    day: 1,
+    money: 250,
+    respect: 0,
+    respectLevel: 0,
+    tapesFound: 0,
+    wanted: createWanted(),
+    mission: createMissionState(),
+    race: createRaceState(),
+    weather: createWeather(),
+    dialogue: createDialogue(),
+    player: {
+      x: SPAWN.x,
+      z: SPAWN.z,
+      heading: SPAWN.heading,
+      onFoot: true,
+      vehicleId: -1,
+      boatId: -1,
+      heliId: -1,
+      speed: 0,
+      health: 100,
+      armor: 0,
+    },
+    vehicles: createVehicles(city, rng),
+    peds: createPeds(city, rng, 24),
+    cops: [],
+    enemies: [],
+    corpses: [],
+    boats: createBoats(city),
+    helis: createHelis(city),
+    particles: [],
+    notices: [],
+    interior: null,
+    properties: { penthouse: false, safehouse: true },
+    garage: [],
+    weapons: {
+      current: 'pistol',
+      owned: { pistol: true },
+      ammo: { pistol: 12 },
+      reloadT: 0,
+      lastShotAt: -99,
+    },
+    taxi: { active: false, stage: 0, timer: 0, pickup: { x: 0, z: 0 }, dropoff: { x: 0, z: 0 } },
+    stats: {
+      distance: 0,
+      stolen: 0,
+      escapes: 0,
+      racesWon: 0,
+      fares: 0,
+      kills: 0,
+      shotsFired: 0,
+      shotsHit: 0,
+    },
+    roadblock: null,
+    heliSearch: false,
+    tracer: null,
+    shotFx: null,
+    nextVehicleId: 1000,
+    nextCopId: 0,
+    nextEnemyId: 0,
+    onMissionDone: null,
   };
-  // Parked cars become world vehicles (stealable).
-  city.parked.forEach((p, i) => state.vehicles.push(createVehicleState(i, p.model, p.x, p.z, p.heading, p.color, true)));
-  // The Big Score sports car, parked in the guarded lot at Harbor Docks.
-  state.vehicles.push(createVehicleState(state.vehicles.length, 'sports', 200, 40, 0, 0xd81a1a, true));
-  // Two drivable boats moored at the marina / harbor.
-  city.boats.forEach((b, i) => state.boats.push({ id: i, model: b.model, x: b.x, z: b.z, heading: 0, speed: 0, bob: 0, driver: false }));
-  // Player helicopter on the harbor helipad.
-  state.helis.push({ id: 0, x: 280, z: -80, y: 0, heading: 0, speed: 0, vy: 0, rotor: 0, pilot: false });
-  state.helis.push({ id: 1, x: 0, z: -160, y: 62, heading: 0, speed: 0, vy: 0, rotor: 0, pilot: false, roof: true });
+  // Wire the vehicle id counter past the spawned fleet.
+  state.nextVehicleId = 1000 + state.vehicles.length;
 
-  function addHeat(crimeId, witness) {
-    const crime = CRIMES.find(c => c.id === crimeId);
-    if (!crime || !witness) return;
-    state.wanted.heat = clamp(state.wanted.heat + crime.heat, 0, 5.99);
-    state.wanted.level = Math.min(5, Math.floor(state.wanted.heat));
-    state.wanted.spotted = true;
-    state.wanted.escape = 0;
-    state.wanted.searchX = state.player.x; state.wanted.searchZ = state.player.z;
-    state.wanted.searchR = 240 + state.wanted.level * 85;
-  }
-  function witnessesNear(range) {
-    for (const p of state.peds) if (p.alive && dist2(p.x, p.z, state.player.x, state.player.z) < range * range) return true;
-    for (const c of state.cops) if (dist2(c.x, c.z, state.player.x, state.player.z) < range * range) return true;
-    return false;
-  }
-  function spawnParticle(x, y, z, kind, life) {
-    const p = state.particles.find(q => !q.active);
-    if (!p) { if (state.particles.length < 240) state.particles.push({ active: true, x, y, z, vx: 0, vy: 0, vz: 0, kind, life: life ?? 0.6, max: life ?? 0.6 }); return; }
-    p.active = true; p.x = x; p.y = y; p.z = z; p.vx = 0; p.vy = 0; p.vz = 0; p.kind = kind; p.life = life ?? 0.6; p.max = p.life;
-  }
-  function collideBuildings(x, z, r) {
-    const b = buildingAt(city, x, z);
-    if (!b) return null;
-    const dx = x - b.x, dz = z - b.z;
-    const px = b.w / 2 + r - Math.abs(dx), pz = b.d / 2 + r - Math.abs(dz);
-    if (px < pz) return { x: b.x + Math.sign(dx || 1) * (b.w / 2 + r), z };
-    return { x, z: b.z + Math.sign(dz || 1) * (b.d / 2 + r) };
-  }
   function step(dt, input) {
-    const p = state.player;
-    const _ox = p.x, _oz = p.z; // for the lifetime distance stat (this step)
-    state.time += dt;
-    tickFireCooldown(state, dt);
-    // Race countdown (3-2-1-GO): tick it down here, in the sim itself, so it
-    // runs in the browser and in headless tests alike — and block driving /
-    // movement input while it runs, so the player and the rivals are held
-    // on the grid until GO.
-    if (state.race.active && (state.race.countdown || 0) > 0) {
-      state.race.countdown = Math.max(0, state.race.countdown - dt);
-      input = { ...input, forward: false, back: false, left: false, right: false, run: false, jump: false, interact: false, enterVehicle: false, handbrake: false, fire: false };
+    stepWorld(state, city, rng, dt, input || emptyInput());
+  }
+
+  return { state, city, rng, step };
+}
+
+// Advance the whole sim one fixed step.
+function stepWorld(state, city, rng, dt, input) {
+  const p = state.player;
+  // Clock.
+  state.time += dt;
+  state.hour += (MINUTES_PER_SECOND * dt) / 60;
+  if (state.hour >= 24) {
+    state.hour -= 24;
+    state.day += 1;
+    if (state.properties.penthouse) {
+      state.money += 500;
     }
-    state.hour += dt * 0.01; // 0.6 minutes per second
-    if (state.hour >= 24) { state.hour -= 24; state.day += 1; if (state.penthouseOwned) state.money += ECONOMY.penthouseIncome; }
-    // District banner.
-    const { districtAt } = { districtAt: (x, z) => (z > 120 ? 'marina' : x > 220 ? 'harbor' : x > 80 && z > -40 ? 'neon' : x < -160 ? (z < -80 ? 'palm' : 'old') : z < -120 ? 'downtown' : x < 0 ? 'old' : 'downtown') };
-    const d = districtAt(p.x, p.z);
-    if (d !== state.district) { state.district = d; state.districtTimer = 4.5; }
-    if (state.districtTimer > 0) state.districtTimer -= dt;
-    // Wanted decay when unseen and outside the search zone.
-    const w = state.wanted;
-    if (w.level > 0 && !w.spotted) {
-      w.escape += dt;
-      const need = 5 + w.level * 1.5;
-      if (w.escape > need) { w.heat = 0; w.level = 0; w.escape = 0; state.stats.escapes += 1; state.notices.push('Wanted cleared. You got away.'); }
-    }
-    if (w.level > 0) {
-      const dSearch = Math.hypot(p.x - w.searchX, p.z - w.searchZ);
-      if (dSearch > w.searchR) w.spotted = false;
-    }
-    // Player on foot.
-    if (p.onFoot && !p.dead) {
-      const run = input.run ? PLAYER.run : PLAYER.walk;
-      let mx = 0, mz = 0;
-      if (input.forward) { mx += Math.sin(p.heading); mz += Math.cos(p.heading); }
-      if (input.back) { mx -= Math.sin(p.heading); mz -= Math.cos(p.heading); }
-      if (input.left) { mx += Math.cos(p.heading); mz -= Math.sin(p.heading); }
-      if (input.right) { mx -= Math.cos(p.heading); mz += Math.sin(p.heading); }
-      const len = Math.hypot(mx, mz) || 1;
-      p.x += (mx / len) * run * dt * (mx || mz ? 1 : 0);
-      p.z += (mz / len) * run * dt * (mx || mz ? 1 : 0);
-      p.speed = (mx || mz) ? run : 0;
-      p.running = !!input.run;
-      if (input.jump && p.y === 0) p.vy = PLAYER.jumpV;
-      p.vy -= PLAYER.gravity * dt;
-      p.y = Math.max(0, p.y + p.vy * dt);
-      if (p.y === 0) p.vy = 0;
-      const hit = collideBuildings(p.x, p.z, 0.6);
-      if (hit) { p.x = hit.x; p.z = hit.z; }
-      const c = clampToCity(p.x, p.z); p.x = c.x; p.z = c.z;
-      if (inWater(p.x, p.z)) { p.z = 238; }
-      if (input.interact) tryInteract();
-      if (input.enterVehicle) { tryEnterVehicle(); input.enterVehicle = false; }
-    } else if (p.vehicleId >= 0) {
-      updateVehicle(state, city, dt, input);
-    } else if (p.boatId >= 0) {
-      // Boat driving handled by boats subsystem through input.
-    } else if (p.heliId >= 0) {
-      // Helicopter handled by aircraft subsystem.
-    }
-    updateTraffic(state, city, dt, rng);
-    updatePeds(state, city, dt, rng);
-    updatePolice(state, city, dt, rng);
-    updateEnemies(state, city, dt, rng);
-    // Car-pedestrian collision. A moving non-police car that hits the player
-    // on foot hurts them (the "run over" fix). A ped is only killed — and
-    // only adds heat — when the PLAYER's car hits them; traffic cars brake
-    // for peds instead (traffic.js) and never give the player heat.
-    for (const v of state.vehicles) {
-      const sp = Math.abs(v.speed || 0);
-      if (sp < 3 || v.driver === 'police') continue;
-      if (p.onFoot && !p.dead && dist2(v.x, v.z, p.x, p.z) < 2.56) {
-        damagePlayer(Math.min(40, Math.round(sp * 1.5)));
-        const dx = p.x - v.x, dz = p.z - v.z, dd = Math.hypot(dx, dz) || 1;
-        p.x += (dx / dd) * 3; p.z += (dz / dd) * 3; p.vy = Math.max(p.vy, 4);
-        collideBuildings(state, p);
-        state.particles.push({ active: true, x: p.x, y: 1.2, z: p.z, vx: 0, vy: 0, vz: 0, kind: 'spark', life: 0.3, max: 0.3 });
-        state.notices.push('Run over by a car!');
-        v.speed *= 0.7;
-      }
-      if (v.driver !== 'player') continue;
-      for (const q of state.peds) {
-        if (!q.alive) continue;
-        if (dist2(v.x, v.z, q.x, q.z) < 2.56) {
-          killPed(state, q);
-          addHeat('hitPed', witnessesNear(60));
-          state.notices.push('Pedestrian run over!');
-          v.speed *= 0.7;
+  }
+  // Weapon reload timer.
+  if (state.weapons.reloadT > 0) state.weapons.reloadT -= dt;
+  // Tracer / shot fx decay.
+  if (state.tracer) {
+    state.tracer.t -= dt;
+    if (state.tracer.t <= 0) state.tracer = null;
+  }
+  if (state.shotFx) {
+    state.shotFx.t -= dt;
+    if (state.shotFx.t <= 0) state.shotFx = null;
+  }
+  // Mouse look (on foot only).
+  if (input.mouseDX) {
+    p.heading -= input.mouseDX * 0.003;
+  }
+  // Enter / exit vehicles, boats, helis, interiors.
+  if (input.enterVehicle) {
+    if (!p.onFoot) {
+      if (p.vehicleId >= 0) carExit(state);
+      else if (p.boatId >= 0) exitBoat(state);
+      else if (p.heliId >= 0) exitHeli(state);
+    } else if (state.interior) {
+      leaveInterior(state);
+    } else {
+      const car = carEnter(state, city);
+      if (!car) {
+        const boat = enterBoat(state);
+        if (!boat) {
+          const heli = enterHeli(state);
+          if (!heli) enterInterior(state, city);
         }
       }
     }
-    updateMissions(state, city, dt, rng);
-    updateBoats(state, city, dt, input, rng);
-    updateAircraft(state, city, dt, input, rng);
-    updateWeather(state, dt, rng);
-    // Particles.
-    for (const pt of state.particles) {
-      if (!pt.active) continue;
-      pt.life -= dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.z += pt.vz * dt;
-      if (pt.life <= 0) pt.active = false;
-    }
-    // Tape pickup.
-    for (const t of city.tapes) {
-      if (!t.taken && dist2(t.x, t.z, p.x, p.z) < 4) {
-        t.taken = true; state.tapesTaken += 1;
-        state.money += ECONOMY.tapeMoney; addRespect(ECONOMY.tapeRespect);
-        state.notices.push(`Postcard: ${t.title} +$${ECONOMY.tapeMoney}`);
-        if (state.tapesTaken === 20) { state.money += ECONOMY.tapeBonus; state.weapons.owned.sniper = { mag: 5, reserve: 15 }; state.notices.push('All 20 Postcards! Bonus $5000 + free Sniper Longeye 308.'); }
+  }
+  if (input.interact && p.onFoot && !state.interior) {
+    enterInterior(state, city);
+  }
+  // Race countdown: the grid is locked until GO. Driving input is
+  // ignored while the countdown runs so the player cannot leave the
+  // start line before the race begins. (Mouse look still works.)
+  if (state.race.active && !state.race.started && state.race.countdown > 0) {
+    input = { ...input, forward: false, back: false, left: false, right: false, handbrake: false };
+  }
+  // Movement.
+  if (p.vehicleId >= 0) {
+    const v = state.vehicles.find((q) => q.id === p.vehicleId);
+    if (v) {
+      driveVehicle(v, input, dt, city, gripFactor(state));
+      p.x = v.x;
+      p.z = v.z;
+      p.heading = v.heading;
+      p.speed = v.speed;
+      state.stats.distance += Math.abs(v.speed) * dt;
+      // Car-ped collision: a moving car that hits a ped knocks them down.
+      if (Math.abs(v.speed) >= 3) {
+        for (const ped of state.peds) {
+          if (ped.down) continue;
+          if (dist2(ped.x, ped.z, v.x, v.z) < 1.6 * 1.6) {
+            knockPed(state, ped, v, rng);
+          }
+        }
+      }
+      // The player's car explodes at 0 health.
+      if (v.health <= 0 && !v.exploded) {
+        v.exploded = true;
+        if (state.notices) state.notices.push('Your car exploded!');
+        damagePlayer(state, 25);
+        carExit(state);
       }
     }
-    // Lifetime distance (pause STATS): the player's movement this step,
-    // counted before any death respawn teleports the player.
-    state.stats.distance += Math.hypot(p.x - _ox, p.z - _oz);
-    // Death / busted flags surfaced as events; the sim respawns the player
-    // at the safehouse hospital (fee + half ammo) so play continues.
-    let events = EVENT_NONE;
-    if (p.health <= 0 && !p.dead) { events |= EVENT_WASTED; damagePlayer(0, 'wasted'); }
-    if (p.busted) events |= EVENT_BUSTED;
-    return events;
+  } else if (p.boatId >= 0) {
+    updateBoats(state, dt, input);
+  } else if (p.heliId >= 0) {
+    updateHelis(state, dt, input);
+  } else if (p.onFoot) {
+    moveOnFoot(state, city, dt, input);
   }
-  function addRespect(n) {
-    state.respect += n;
-    state.respectLevel = respectLevel(state.respect);
+  // World systems.
+  updateTraffic(state, city, dt, rng);
+  updatePeds(state, city, dt, rng);
+  updateEnemies(state, city, dt, rng);
+  updatePolice(state, city, dt, rng);
+  updateWanted(state, dt);
+  updateMissions(state, city, dt, rng);
+  updateRace(state, dt);
+  raceRivals(state, dt, rng);
+  updateWeather(state, dt, rng);
+  updateDialogue(state, dt);
+  updateTapes(state, city);
+  updateTaxi(state, city, dt, rng);
+  updateParticles(state, dt);
+  updateCorpses(state, dt);
+  // Radio (edge-triggered: one press = one station change).
+  if (input.radioNext) state.radioIndex = ((state.radioIndex || 0) + 1) % 4;
+  if (input.radioPrev) state.radioIndex = ((state.radioIndex || 0) + 3) % 4;
+  // Weapon switching (edge-triggered).
+  if (input.weaponNext) nextWeapon(state);
+  // Death: respawn at the hospital, bill the player, blow the mission.
+  if (p.health <= 0) {
+    respawn(state);
   }
-  function tryInteract() {
-    const p = state.player;
-    // Diner door.
-    if (dist2(p.x, p.z, city.diner.x, city.diner.z) < 36) { state.interior = 'diner'; return; }
-    if (dist2(p.x, p.z, city.gunshop.x, city.gunshop.z) < 36) { state.interior = 'gunshop'; return; }
-    // Pay n Spray.
-    for (const s of city.paynspray) {
-      if (dist2(p.x, p.z, s.x, s.z) < 36 && state.wanted.level > 0) {
-        const cost = ECONOMY.resprayBase + state.wanted.level * ECONOMY.resprayPerLevel;
-        if (state.money >= cost) { state.money -= cost; state.wanted.heat = 0; state.wanted.level = 0; state.notices.push(`Pay n Spray: new paint, wanted cleared (-$${cost}).`); }
-      }
-    }
-    // Penthouse buy.
-    if (dist2(p.x, p.z, city.penthouse.x, city.penthouse.z) < 36 && !state.penthouseOwned && state.money >= ECONOMY.penthousePrice) {
-      state.money -= ECONOMY.penthousePrice; state.penthouseOwned = true; state.notices.push('Penthouse Palm Heights bought! Income $500/day in-game.');
-    }
-    // Safehouse sleep/save.
-    if (dist2(p.x, p.z, city.safehouse.x, city.safehouse.z) < 36) {
-      state.wanted.heat = 0; state.wanted.level = 0; state.hour = 8; state.notices.push('Slept at the safehouse. Wanted cleared, time 08:00.');
-    }
-  }
-  function tryEnterVehicle() {
-    const p = state.player;
-    // Helicopter first (helipad).
-    for (const h of state.helis) if (!h.pilot && dist2(p.x, p.z, h.x, h.z) < 16) { h.pilot = true; p.heliId = h.id; p.onFoot = false; return; }
-    // Boat at the dock: board from the pier end (shore clamps the player
-    // to z = 238, boats sit at z = 252, so the radius must span the gap).
-    for (const b of state.boats) if (!b.driver && dist2(p.x, p.z, b.x, b.z) < 400) { b.driver = true; p.boatId = b.id; p.onFoot = false; return; }
-    const v = nearestVehicle(state, p.x, p.z, 6);
-    if (v) enterVehicle(state, v, rng);
-  }
-  function damagePlayer(amount, source) {
-    const p = state.player;
-    let rest = amount;
-    if (p.armor > 0) { const absorbed = Math.min(p.armor, rest * 0.65); p.armor -= absorbed; rest -= absorbed; }
-    p.health = Math.max(0, p.health - rest);
-    if (p.health <= 0) {
-      const fee = Math.min(ECONOMY.hospitalMax, Math.max(ECONOMY.hospitalMin, ECONOMY.hospitalFee + Math.floor(state.money * ECONOMY.hospitalPct)));
-      state.money = Math.max(0, state.money - fee);
-      for (const k of Object.keys(state.weapons.owned)) if (state.weapons.owned[k]) state.weapons.owned[k].reserve = Math.floor(state.weapons.owned[k].reserve / 2);
-      p.x = -260; p.z = 190; p.health = PLAYER.health; p.dead = false; p.onFoot = true; p.vehicleId = -1;
-      state.notices.push(`WASTED. The hospital charged $${fee}.`);
-    }
-  }
-  return { state, city, rng, step, addHeat, witnessesNear, spawnParticle, collideBuildings, addRespect, damagePlayer, tryEnterVehicle };
+  // Notices: keep the last few.
+  if (state.notices.length > 6) state.notices.splice(0, state.notices.length - 6);
 }
-export function emptyInput() {
-  return { forward: false, back: false, left: false, right: false, run: false, jump: false, interact: false, enterVehicle: false, handbrake: false, fire: false, reload: false, aim: false, mouseDX: 0, mouseDY: 0, wheel: 0, radioNext: false, radioPrev: false };
+
+// On-foot movement: W/S along the heading, A/D strafe sideways.
+// A strafes left, D strafes right (not mirrored).
+function moveOnFoot(state, city, dt, input) {
+  const p = state.player;
+  const speed = input.run ? RUN_SPEED : WALK_SPEED;
+  const fx = Math.sin(p.heading);
+  const fz = Math.cos(p.heading);
+  // Right vector (perpendicular, clockwise from facing).
+  const rx = Math.cos(p.heading);
+  const rz = -Math.sin(p.heading);
+  let mx = 0;
+  let mz = 0;
+  if (input.forward) { mx += fx; mz += fz; }
+  if (input.back) { mx -= fx; mz -= fz; }
+  if (input.left) { mx -= rx; mz -= rz; }
+  if (input.right) { mx += rx; mz += rz; }
+  const len = Math.hypot(mx, mz);
+  if (len > 0.01) {
+    mx /= len;
+    mz /= len;
+    const nx = p.x + mx * speed * dt;
+    const nz = p.z + mz * speed * dt;
+    // Buildings block walking: slide along the wall.
+    if (!buildingAt(city, nx, nz)) {
+      p.x = nx;
+      p.z = nz;
+    } else if (!buildingAt(city, nx, p.z)) {
+      p.x = nx;
+    } else if (!buildingAt(city, p.x, nz)) {
+      p.z = nz;
+    }
+    p.x = clamp(p.x, WORLD.minX + 2, WORLD.maxX - 2);
+    p.z = clamp(p.z, WORLD.minZ + 2, WORLD.maxZ - 2);
+    p.speed = speed;
+    state.stats.distance += speed * dt;
+  } else {
+    p.speed = 0;
+  }
+}
+
+// A car hits a ped: the ped goes down with a knockback. Killing a ped
+// with a car raises wanted heat (witnessed by definition: the driver).
+function knockPed(state, ped, vehicle, rng) {
+  ped.down = true;
+  ped.downT = 0;
+  ped.health = 0;
+  const away = Math.atan2(ped.x - vehicle.x, ped.z - vehicle.z);
+  ped.x += Math.sin(away) * 2;
+  ped.z += Math.cos(away) * 2;
+  state.corpses.push({ x: ped.x, z: ped.z, heading: ped.heading, t: 0 });
+  addWantedHeat(state, 1.0);
+  if (state.notices) state.notices.push('You hit a pedestrian!');
+}
+
+// Particles: age them out.
+function updateParticles(state, dt) {
+  for (const pt of state.particles) {
+    if (!pt.active) continue;
+    pt.life -= dt;
+    if (pt.life <= 0) pt.active = false;
+  }
+  if (state.particles.length > 400) {
+    state.particles = state.particles.filter((pt) => pt.active).slice(-300);
+  }
+}
+
+// Corpses: lie for 25 seconds, then fade away.
+function updateCorpses(state, dt) {
+  for (const c of state.corpses) c.t += dt;
+  state.corpses = state.corpses.filter((c) => c.t < 25);
+}
+
+// The player died: hospital respawn, a bill, the mission blows.
+function respawn(state) {
+  const p = state.player;
+  state.money = Math.max(0, state.money - 300);
+  p.health = 100;
+  p.x = -260;
+  p.z = 190;
+  p.onFoot = true;
+  p.vehicleId = -1;
+  p.boatId = -1;
+  p.heliId = -1;
+  p.speed = 0;
+  state.wanted.heat = Math.max(0, state.wanted.heat - 1);
+  state.wanted.level = Math.max(0, state.wanted.level - 1);
+  if (state.mission.active) {
+    state.mission.active = false;
+    state.mission.failed = true;
+    state.mission.failReason = 'You died.';
+    if (state.notices) state.notices.push('JOB BLOWN: You died.');
+  }
+  if (state.notices) state.notices.push('FLATLINED. The hospital sends a bill. Try again.');
+  // Clear the enemies that killed the player so the retry is fair.
+  pruneEnemies(state);
 }

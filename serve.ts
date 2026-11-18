@@ -10,10 +10,12 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
-// Default port when no --port is given.
-const DEFAULT_PORT = 8080;
-const requested = portIndex === -1 ? DEFAULT_PORT : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : DEFAULT_PORT;
+const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+// --root <dir> serves a different directory (e.g. a hand-in's game/ for
+// a preview: `node serve.ts --root out/game --port 8081`).
+const rootIndex = args.indexOf('--root');
+const serveRoot = rootIndex === -1 ? root : resolve(args[rootIndex + 1] ?? root);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -49,8 +51,8 @@ createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const file = resolve(join(serveRoot, normalize(pathname)));
+  if (file !== serveRoot && !file.startsWith(serveRoot + sep)) {
     response.writeHead(403).end('forbidden');
     return;
   }
@@ -70,5 +72,5 @@ createServer((request, response) => {
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`game/ is on http://localhost:${port}`);
+  console.log(`serving ${serveRoot} on http://localhost:${port}`);
 });

@@ -138,11 +138,14 @@ for (let id = 1; id <= 6; id++) {
     reason = ok ? '' : 'escape did not complete';
   }
   const dt = state.time - t0;
-  results.push({ id, ok, seconds: dt.toFixed(1), money: state.money, wanted: state.wanted.level });
-  console.log(`mission ${id}: ${ok ? 'PASS' : 'FAIL ' + reason} in ${dt.toFixed(1)}s sim, money $${state.money}`);
-  // A stage that takes over 400 sim-seconds is stuck, not slow.
-  const STALL_LIMIT_S = 400;
-  if (dt > STALL_LIMIT_S) { console.error(`mission ${id}: FAIL stalled over ${STALL_LIMIT_S}s`); ok = false; }
+  // Completing a job unlocks the next one (the title screen enforces
+  // the order); a finished job that unlocks nothing is a progression bug.
+  // Job 6 is the last one, so it unlocks nothing (free roam instead).
+  const unlockOk = !ok || id >= 6 || state.mission.unlocked >= id + 1;
+  if (!unlockOk) reason = 'next job did not unlock';
+  results.push({ id, ok: ok && unlockOk, seconds: dt.toFixed(1), money: state.money, wanted: state.wanted.level });
+  console.log(`mission ${id}: ${ok && unlockOk ? 'PASS' : 'FAIL ' + reason} in ${dt.toFixed(1)}s sim, money $${state.money}`);
+  if (dt > 400) { console.error(`mission ${id}: FAIL stalled over 400s`); ok = false; }
 }
 // Heat must be clearable after the story.
 const w2 = createWorld(1);

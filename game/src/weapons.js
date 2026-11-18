@@ -1,112 +1,170 @@
-// Weapons: 7 distinct guns + melee + molotov. Shooting is a raycast in the
-// x-z plane against peds, enemies and vehicles. Tracer + muzzle flash are
-// particles the renderer draws; damage, recoil and ammo live here.
+// weapons.js — shooting. Raycast-free: a shot hits the nearest living
+// target inside the weapon's range and inside a cone in front of the
+// player (or the driver's aim when in a car). Damage, ammo, reload and
+// drive-by SMG live here. Pure sim: no sound, no meshes.
+
 import { WEAPONS } from './data.js';
 import { dist2, clamp } from './random.js';
-import { killPed } from './npc.js';
 
-export function weaponDef(id) { return WEAPONS.find(w => w.id === id); }
-export function buyWeapon(state, id) {
-  const def = weaponDef(id);
-  if (!def) return false;
-  if (state.weapons.owned[id]) return buyAmmo(state, id);
-  if (state.money < def.price) { state.notices.push(`Not enough money for ${def.name} ($${def.price}).`); return false; }
-  if (state.respectLevel < def.respect) { state.notices.push(`${def.name} butuh Respect level ${def.respect}.`); return false; }
-  state.money -= def.price;
-  state.weapons.owned[id] = { mag: def.mag, reserve: def.reserve };
-  state.notices.push(`${def.name} bought!`);
+// The currently equipped weapon definition.
+export function currentWeapon(state) {
+  return WEAPONS.find((w) => w.id === state.weapons.current) || WEAPONS[0];
+}
+
+// Switch to a weapon the player owns. Returns true when it changed.
+export function selectWeapon(state, weaponId) {
+  if (!state.weapons.owned[weaponId]) return false;
+  state.weapons.current = weaponId;
+  state.weapons.reloadT = 0;
   return true;
 }
-export function buyAmmo(state, id) {
-  const def = weaponDef(id);
-  if (!def || !state.weapons.owned[id] || def.ammoPrice === 0) return false;
-  if (state.money < def.ammoPrice) return false;
-  state.money -= def.ammoPrice;
-  state.weapons.owned[id].reserve += def.mag * 2;
-  return true;
+
+// Cycle to the next owned weapon.
+export function nextWeapon(state) {
+  const owned = WEAPONS.filter((w) => state.weapons.owned[w.id]);
+  if (owned.length < 2) return;
+  const i = owned.findIndex((w) => w.id === state.weapons.current);
+  state.weapons.current = owned[(i + 1) % owned.length].id;
 }
+
+// Start a reload (takes a moment; the weapon cannot fire while reloading).
 export function reloadWeapon(state) {
-  const cur = state.weapons.owned[state.weapons.current];
-  const def = weaponDef(state.weapons.current);
-  if (!cur || !def || def.mag === 0) return;
-  const need = def.mag - cur.mag;
-  const take = Math.min(need, cur.reserve);
-  cur.mag += take; cur.reserve -= take;
-}
-// Fire once. Returns true when a shot left the barrel.
-export function fireWeapon(state, city, rng) {
-  const p = state.player;
-  const cur = state.weapons.owned[state.weapons.current];
-  const def = weaponDef(state.weapons.current);
-  if (!cur || !def) return false;
-  if (state._fireCooldown > 0) return false;
-  if (def.mag > 0 && cur.mag <= 0) { reloadWeapon(state); return false; }
-  if (def.mag > 0) cur.mag -= 1;
-  state._fireCooldown = def.rate;
-  state.mission.stats.shots += 1;
-  state._shotFired = true;
-  state._muzzle = { x: p.x, z: p.z, t: 0.08 };
-  const pellets = def.pellets || 1;
-  const silent = !!def.silent;
-  for (let i = 0; i < pellets; i++) {
-    const spread = (rng() - 0.5) * def.spread * 4;
-    const ang = p.heading + spread;
-    const dx = Math.sin(ang), dz = Math.cos(ang);
-    let best = null, bd = def.range * def.range;
-    for (const e of state.enemies) {
-      if (!e.alive) continue;
-      const ex = e.x - p.x, ez = e.z - p.z;
-      const along = ex * dx + ez * dz;
-      if (along < 0 || along > def.range) continue;
-      const perp = Math.abs(ex * dz - ez * dx);
-      if (perp < 2 && along * along < bd) { bd = along * along; best = { kind: 'enemy', obj: e, d: along }; }
-    }
-    for (const q of state.peds) {
-      if (!q.alive) continue;
-      const ex = q.x - p.x, ez = q.z - p.z;
-      const along = ex * dx + ez * dz;
-      if (along < 0 || along > def.range) continue;
-      const perp = Math.abs(ex * dz - ez * dx);
-      if (perp < 1.5 && along * along < bd) { bd = along * along; best = { kind: 'ped', obj: q, d: along }; }
-    }
-    for (const v of state.vehicles) {
-      if (v.driver === 'player') continue;
-      const ex = v.x - p.x, ez = v.z - p.z;
-      const along = ex * dx + ez * dz;
-      if (along < 0 || along > def.range) continue;
-      const perp = Math.abs(ex * dz - ez * dx);
-      if (perp < 2.5 && along * along < bd) { bd = along * along; best = { kind: 'vehicle', obj: v, d: along }; }
-    }
-    if (best) {
-      state.mission.stats.hits += 1;
-      state._hitMark = state.time; // hit marker: HUD shows an X for 0.3 s.
-      if (best.kind === 'enemy') { best.obj.hp -= def.damage; if (best.obj.hp <= 0) { best.obj.alive = false; state.mission.stats.kills += 1; } }
-      else if (best.kind === 'ped') { killPed(state, best.obj); if (!silent) addCrimeHeat(state, 'kill'); }
-      else if (best.kind === 'vehicle') { best.obj.hp -= def.damage; if (best.obj.driver === 'police') addCrimeHeat(state, 'shootCopCar'); }
-    }
-  }
-  if (def.thrown) {
-    state.particles.push({ active: true, x: p.x, y: 1, z: p.z, vx: Math.sin(p.heading) * 14, vy: 4, vz: Math.cos(p.heading) * 14, kind: 'fire', life: 4, max: 4 });
-  }
-  if (!silent) addCrimeHeat(state, 'gunshot');
-  if (state._fireCooldownTick) state._fireCooldownTick = 0;
+  const w = currentWeapon(state);
+  if (w.melee || w.thrown) return false;
+  if (state.weapons.ammo[w.id] >= w.mag) return false;
+  state.weapons.reloadT = w.id === 'sniper' ? 2.2 : 1.4;
   return true;
 }
-export function addCrimeHeat(state, crimeId) {
-  // Witnessed-only: heat rises only when a ped or cop can see the player.
-  const p = state.player;
-  let witness = false;
-  for (const q of state.peds) if (q.alive && dist2(q.x, q.z, p.x, p.z) < 90000) witness = true;
-  for (const c of state.cops) if (dist2(c.x, c.z, p.x, p.z) < 270400) witness = true;
-  if (!witness) return;
-  const crime = { gunshot: 0.15, kill: 0.75, shootCopCar: 0.2 }[crimeId] ?? 0.15;
-  state.wanted.heat = clamp(state.wanted.heat + crime, 0, 5.99);
-  state.wanted.level = Math.min(5, Math.floor(state.wanted.heat));
-  state.wanted.spotted = true; state.wanted.escape = 0;
-  state.wanted.searchX = p.x; state.wanted.searchZ = p.z;
-  state.wanted.searchR = 240 + state.wanted.level * 85;
+
+// All living shootable things in the world: enemies, cops, peds.
+function targets(state) {
+  const list = [];
+  for (const e of state.enemies) if (e.alive) list.push({ kind: 'enemy', ref: e });
+  for (const c of state.cops) if (!c.down) list.push({ kind: 'cop', ref: c });
+  for (const p of state.peds) if (!p.down) list.push({ kind: 'ped', ref: p });
+  return list;
 }
-export function tickFireCooldown(state, dt) {
-  if (state._fireCooldown > 0) state._fireCooldown -= dt;
-  if (state._muzzle) { state._muzzle.t -= dt; if (state._muzzle.t <= 0) state._muzzle = null; }
+
+// Fire the current weapon once. Returns the hit (or null).
+// `city` is accepted for API compatibility with the tests; the shot
+// itself needs only the state and the RNG.
+export function fireWeapon(state, city, rng) {
+  const w = currentWeapon(state);
+  const p = state.player;
+  if (state.weapons.reloadT > 0) return null;
+  if (w.melee) {
+    return meleeSwing(state, rng);
+  }
+  if (w.thrown) {
+    return throwMolotov(state, rng);
+  }
+  if (state.weapons.ammo[w.id] <= 0) {
+    reloadWeapon(state);
+    return null;
+  }
+  state.weapons.ammo[w.id] -= 1;
+  state.weapons.lastShotAt = state.time;
+  // Muzzle flash particle + a short tracer record for the renderer.
+  spawnShotFx(state, p.x, p.z, p.heading, w);
+  // Find the nearest target in range and inside the aim cone.
+  const range = w.range;
+  const cosCone = Math.cos(0.35);
+  const fx = Math.sin(p.heading);
+  const fz = Math.cos(p.heading);
+  let best = null;
+  let bestD = Infinity;
+  for (const t of targets(state)) {
+    const dx = t.ref.x - p.x;
+    const dz = t.ref.z - p.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > range * range || d2 < 0.01) continue;
+    const d = Math.sqrt(d2);
+    const dot = (dx * fx + dz * fz) / d;
+    if (dot < cosCone) continue;
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  if (!best) {
+    state.stats.shotsFired = (state.stats.shotsFired || 0) + 1;
+    return null;
+  }
+  const hit = applyDamage(state, best, w.damage, rng);
+  state.stats.shotsFired = (state.stats.shotsFired || 0) + 1;
+  if (hit) state.stats.shotsHit = (state.stats.shotsHit || 0) + 1;
+  return hit;
+}
+
+// Melee swing: hits the nearest living thing within arm's reach.
+function meleeSwing(state, rng) {
+  const p = state.player;
+  let best = null;
+  let bestD = Infinity;
+  for (const t of targets(state)) {
+    const d = Math.sqrt(dist2(t.ref.x, t.ref.z, p.x, p.z));
+    if (d < 2.5 && d < bestD) { bestD = d; best = t; }
+  }
+  if (!best) return null;
+  return applyDamage(state, best, 22, rng);
+}
+
+// Molotov: arcs to the aim point and leaves a fire patch.
+function throwMolotov(state, rng) {
+  const p = state.player;
+  const tx = p.x + Math.sin(p.heading) * 14;
+  const tz = p.z + Math.cos(p.heading) * 14;
+  state.particles.push({
+    active: true, kind: 'fire', x: tx, z: tz, y: 0,
+    vx: 0, vz: 0, life: 6, maxLife: 6,
+  });
+  for (const t of targets(state)) {
+    if (dist2(t.ref.x, t.ref.z, tx, tz) < 36) applyDamage(state, t, 35, rng);
+  }
+  state.stats.shotsFired = (state.stats.shotsFired || 0) + 1;
+  return { kind: 'molotov', x: tx, z: tz };
+}
+
+// Damage a target. Returns a hit record, or null when it survives.
+// Killing a cop or a ped raises wanted heat (witnessed crime).
+function applyDamage(state, target, damage, rng) {
+  const ref = target.ref;
+  const health = ref.health ?? 60;
+  ref.health = health - damage;
+  ref.flashT = 0.12;
+  if (ref.health > 0) {
+    return { kind: target.kind, ref, killed: false, damage };
+  }
+  if (target.kind === 'enemy') {
+    ref.alive = false;
+    state.stats.kills = (state.stats.kills || 0) + 1;
+    state.corpses.push({ x: ref.x, z: ref.z, heading: ref.heading || 0, t: 0 });
+  } else if (target.kind === 'cop') {
+    ref.down = true;
+    ref.downT = 0;
+    addWantedHeat(state, 1.0);
+  } else {
+    ref.down = true;
+    ref.downT = 0;
+    addWantedHeat(state, 1.0);
+  }
+  return { kind: target.kind, ref, killed: true, damage };
+}
+
+// Raise wanted heat (clamped to the 0-5 scale).
+export function addWantedHeat(state, amount) {
+  state.wanted.heat = clamp(state.wanted.heat + amount, 0, 5);
+  state.wanted.level = Math.min(5, Math.floor(state.wanted.heat + 0.01));
+  if (state.wanted.level > 0) {
+    state.wanted.spotted = true;
+    state.wanted.searchX = state.player.x;
+    state.wanted.searchZ = state.player.z;
+    state.wanted.searchR = 500;
+  }
+}
+
+// A muzzle-flash particle and a tracer record for the renderer.
+function spawnShotFx(state, x, z, heading, weapon) {
+  state.particles.push({
+    active: true, kind: 'muzzle', x: x + Math.sin(heading) * 1.2, z: z + Math.cos(heading) * 1.2, y: 1.3,
+    vx: 0, vz: 0, life: 0.08, maxLife: 0.08,
+  });
+  state.tracer = { x, z, heading, range: weapon.range, t: 0.06 };
 }
