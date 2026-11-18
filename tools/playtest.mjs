@@ -6,6 +6,9 @@ import { STEP } from '../game/src/config.js';
 import { findPath } from '../game/src/city.js';
 import { startMission } from '../game/src/missions.js';
 import { nearestVehicle } from '../game/src/vehicles.js';
+
+// One fixed seed for every test, so a run replays identically.
+const SEED = 1;
 import { interiorAt, interactInterior, leaveInterior } from '../game/src/interiors.js';
 import { shopItems } from '../game/src/side.js';
 import { startRace, updateRace, raceRivals } from '../game/src/minigames.js';
@@ -55,7 +58,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 1. drive: player enters a parked car and moves > 50 units ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
   s.player.x = car.x + 2; s.player.z = car.z;
   w.step(STEP, { ...emptyInput(), enterVehicle: true });
@@ -67,7 +70,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 2. steal car: enter a parked car, wanted rises (witnessed) ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   // Put a ped next to the car so the theft is witnessed.
   const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
   steps(w, 600); // let peds spawn in
@@ -81,7 +84,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 3. wanted + police chase: force wanted 3, cops spawn and close in ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   s.wanted.heat = 3.4; s.wanted.level = 3; s.wanted.spotted = true;
   s.wanted.searchX = s.player.x; s.wanted.searchZ = s.player.z; s.wanted.searchR = 500;
   steps(w, 600);
@@ -92,7 +95,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 4. mission 1 completes (autopilot along roads, reuse missionCheck path) ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   startMission(s, 1);
   driveTo(s, w, -260, 200, 9000);
   const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
@@ -104,7 +107,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 5. enter diner + gun shop, buy a weapon ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   s.player.x = w.city.diner.x; s.player.z = w.city.diner.z;
   w.step(STEP, { ...emptyInput(), interact: true });
   let okDiner = interiorAt(s, w.city) === 'diner';
@@ -122,7 +125,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 6. street race 1 route vs rival AI ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   startRace(s, 'marina');
   // Mirror the main.js loop: race progress + rival AI run per step.
   for (let i = 0; i < 60 * 90; i++) { w.step(STEP, emptyInput()); updateRace(s, STEP); raceRivals(s, STEP, w.rng); }
@@ -132,7 +135,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 7. ride boat ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   const b = nearestBoat(s, -260, 240);
   let ok = !!b;
   if (ok) {
@@ -146,7 +149,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 8. fly helicopter ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   const pad = heliAtPad(s, 280, -80); // harbor helipad, ground-level heli
   let ok = !!pad;
   if (ok) {
@@ -161,7 +164,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 9. rain weather ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   s.weather.kind = 'rain'; s.weather.t = 30;
   steps(w, 120);
   check('rain weather', s.weather.kind === 'rain', `kind=${s.weather.kind}, t=${s.weather.t.toFixed(1)}`);
@@ -169,7 +172,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
 
 // --- 10. 2D fallback renderer draws without throwing ---
 {
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   const calls = [];
   const ctx = new Proxy({}, { get: (t, k) => { if (k === 'canvas') return { width: 640, height: 480 }; return (...a) => calls.push(k); } });
   let ok = true;
@@ -182,7 +185,7 @@ function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp()
   // save.js uses window.localStorage; stub it in Node (graceful-degradation path).
   const store = new Map();
   globalThis.window = { localStorage: { setItem: (k, v) => store.set(k, v), getItem: k => store.get(k) ?? null } };
-  const w = createWorld(1); const s = w.state;
+  const w = createWorld(SEED); const s = w.state;
   s.money = 7777; s.respect = 1234; s.mission.done = [true, false, false, false, false, false];
   saveGame(s);
   s.money = 0; s.respect = 0; s.mission.done = [false, false, false, false, false, false];

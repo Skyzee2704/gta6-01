@@ -52,8 +52,17 @@ export function updateTraffic(state, city, dt, rng) {
     }
     const pd = Math.hypot(p.x - v.x, p.z - v.z);
     if (pd < 10 && !p.onFoot) blocked = true;
+    // Brake for pedestrians in the path ahead (player on foot or any alive
+    // ped within 5 units of the point 8 units ahead of the car).
+    if (!blocked) {
+      const aheadX = v.x + Math.sin(v.heading) * 8, aheadZ = v.z + Math.cos(v.heading) * 8;
+      if (p.onFoot && dist2(p.x, p.z, aheadX, aheadZ) < 25) blocked = true;
+      else for (const q of state.peds) {
+        if (q.alive && dist2(q.x, q.z, aheadX, aheadZ) < 25) { blocked = true; break; }
+      }
+    }
     if (blocked) v.blocked += dt; else v.blocked = 0;
-    if (v.blocked > 4 && !v.honked) { v.honked = true; state.notices.push('Klakson! Traffic macet di depanmu.'); }
+    if (v.blocked > 4 && !v.honked) { v.honked = true; state.notices.push('Honk! Traffic jam ahead of you.'); }
     if (!blocked) v.honked = false;
     const cruise = (SPEEDS.avenue + (v.temper - 1) * 4) * (v.panic > 0 ? 1.35 : 1);
     if (stop || blocked) v.speed = Math.max(0, v.speed - 20 * dt);

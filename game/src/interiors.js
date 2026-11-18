@@ -7,12 +7,12 @@ import { buyMeal } from './economy.js';
 
 export const INTERIORS = {
   diner: {
-    name: 'Rosas Diner', keeper: 'rosa', keeperLine: 'Rosa: "Duduk, Milo. Makan dulu, baru kerja."',
-    menu: [{ id: 'meal', name: 'Makan siang Rosa', price: 25, desc: 'Health penuh' }],
+    name: 'Rosas Diner', keeper: 'rosa', keeperLine: 'Rosa: "Sit down, Milo. Eat first, then work."',
+    menu: [{ id: 'meal', name: 'Rosa\'s Lunch', price: 25, desc: 'Full health' }],
     tables: 4, customers: 3,
   },
   gunshop: {
-    name: 'Harbor Arms', keeper: 'mags', keeperLine: 'Penjaga: "Senjata bagus, harga jujur. Pernah beli di sini, kan?"',
+    name: 'Harbor Arms', keeper: 'mags', keeperLine: 'Keeper: "Good guns, honest prices. You\'ve bought here before, right?"',
     menu: WEAPONS.map(w => ({ id: w.id, name: w.name, price: w.price, desc: `Damage ${w.damage} · Respect ${w.respect}` })),
     tables: 0, customers: 1,
   },

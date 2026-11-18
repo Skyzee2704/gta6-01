@@ -7,6 +7,7 @@ export function saveGame(state) {
     money: state.money, respect: state.respect, day: state.day, hour: state.hour,
     done: state.mission.done, tapesTaken: state.tapesTaken, penthouseOwned: state.penthouseOwned,
     best: state.race.best, weapons: state.weapons.owned, current: state.weapons.current,
+    stats: state.stats,
     x: state.player.x, z: state.player.z, savedAt: new Date().toISOString(),
   };
   try { window.localStorage.setItem(SAVE_KEY, JSON.stringify(data)); state.savedAt = data.savedAt; return true; }
@@ -20,6 +21,9 @@ export function loadGame(state) {
     state.money = data.money; state.respect = data.respect; state.day = data.day; state.hour = data.hour;
     state.mission.done = data.done; state.tapesTaken = data.tapesTaken; state.penthouseOwned = data.penthouseOwned;
     state.race.best = data.best || {}; state.weapons.owned = data.weapons; state.weapons.current = data.current;
+    // Lifetime stats: merge over the defaults so old saves (no stats field)
+    // keep working. Same SAVE_KEY.
+    if (data.stats) state.stats = { ...state.stats, ...data.stats };
     state.player.x = data.x; state.player.z = data.z;
     return data;
   } catch { return null; }

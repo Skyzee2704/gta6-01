@@ -1,0 +1,16 @@
+{
+  "path": "/home/hatch/workspace/makefun/gta6-01/solmar-preview-v7.mp4",
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "width": 1280,
+      "height": 720,
+      "r_frame_rate": "30/1"
+    }
+  ],
+  "format": {
+    "duration": "75.000000",
+    "size": "1355026"
+  }
+}

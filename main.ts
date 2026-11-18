@@ -2,6 +2,8 @@
 // Copies game/ and screenshots/ beside this file to /output and writes
 // /output/dossier.json with the vendored make.fun library.
 //
+// Exit codes: 0 = /output written (game + screenshots + dossier.json),
+// 1 = gate refused, nothing written.
 // Gate (refuses a bad hand-in, exit 1, message "refusing to hand in"):
 //   - game/index.html, game/src/main.js, game/src/render.js, game/src/city.js exist
 //   - screenshots/ holds 3-4 images, nothing else, cover starts with "1-"

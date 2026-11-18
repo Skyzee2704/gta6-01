@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+// Default port when no --port is given.
+const DEFAULT_PORT = 8080;
+const requested = portIndex === -1 ? DEFAULT_PORT : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : DEFAULT_PORT;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

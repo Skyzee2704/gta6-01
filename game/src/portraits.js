@@ -8,6 +8,8 @@ export function drawPortrait(ctx, castId, x, y, size) {
   const r = size / 2;
   ctx.save();
   ctx.beginPath(); ctx.arc(x + r, y + r, r, 0, Math.PI * 2); ctx.clip();
+  // Backdrop gradient: plum at the top fading to deep navy, the same
+  // palette as the dialogue boxes so the portrait sits in the frame.
   const grad = ctx.createLinearGradient(x, y, x, y + size);
   grad.addColorStop(0, '#3a2a4a'); grad.addColorStop(1, '#1a2a4a');
   ctx.fillStyle = grad; ctx.fillRect(x, y, size, size);

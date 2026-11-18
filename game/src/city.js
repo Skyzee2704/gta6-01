@@ -43,7 +43,7 @@ export function createCity(seed) {
         const z = cz + (k === 1 ? 4 : -4);
         let h = district === 'downtown' ? range(rng, 30, 62) : district === 'neon' ? range(rng, 16, 34) : district === 'harbor' ? range(rng, 10, 18) : range(rng, 8, 22);
         if (district === 'palm') h = range(rng, 8, 14);
-        buildings.push({ x, z, w, d, h, district, color: pick(rng, wallColors), roof: district === 'old' ? 0xc96f3f : 0x5a5a60, sign: rng() < 0.3 ? pick(rng, BRANDS) : null, hotel: rng() < 0.12 ? pick(rng, HOTELS) : null, neon: district === 'neon' });
+        buildings.push({ x, z, w, d, h, floors: Math.max(1, Math.round(h / 3)), district, color: pick(rng, wallColors), roof: district === 'old' ? 0xc96f3f : 0x5a5a60, sign: rng() < 0.3 ? pick(rng, BRANDS) : null, hotel: rng() < 0.12 ? pick(rng, HOTELS) : null, neon: district === 'neon' });
       }
       if (district === 'marina' || district === 'palm') {
         for (let p = 0; p < 3; p++) palms.push({ x: bx0 + rng() * (bx1 - bx0), z: bz0 + rng() * (bz1 - bz0), h: range(rng, 7, 10) });
@@ -69,14 +69,14 @@ export function createCity(seed) {
     tapes.push({ id: i, title: TAPE_TITLES[i], district: tapeDistricts[i], x, z, taken: false });
   }
   const landmarks = [
-    { id: 'lighthouse', name: 'Mercusuar Marina', x: -300, z: 225, kind: 'lighthouse' },
+    { id: 'lighthouse', name: 'Marina Lighthouse', x: -300, z: 225, kind: 'lighthouse' },
     { id: 'diner', name: 'Rosas Diner', x: -180, z: 60, kind: 'diner' },
     { id: 'gunshop', name: 'Harbor Arms', x: 260, z: 40, kind: 'gunshop' },
-    { id: 'crane', name: 'Crane Pelabuhan', x: 280, z: -40, kind: 'crane' },
-    { id: 'towers', name: 'Tiga Menara Kaca', x: 0, z: -160, kind: 'towers' },
-    { id: 'gate', name: 'Gapura Neon', x: 120, z: 40, kind: 'gate' },
-    { id: 'viewpoint', name: 'Titik Pandang Palm Heights', x: -200, z: -180, kind: 'viewpoint' },
-    { id: 'pier', name: 'Dermaga Kayu', x: -260, z: 230, kind: 'pier' },
+    { id: 'crane', name: 'Harbor Crane', x: 280, z: -40, kind: 'crane' },
+    { id: 'towers', name: 'Three Glass Towers', x: 0, z: -160, kind: 'towers' },
+    { id: 'gate', name: 'Neon Gate', x: 120, z: 40, kind: 'gate' },
+    { id: 'viewpoint', name: 'Palm Heights Overlook', x: -200, z: -180, kind: 'viewpoint' },
+    { id: 'pier', name: 'Wooden Pier', x: -260, z: 230, kind: 'pier' },
   ];
   return {
     seed, buildings, palms, lamps, containers, parked, tapes, nodes, edges, landmarks,

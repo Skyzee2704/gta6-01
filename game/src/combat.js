@@ -8,6 +8,9 @@ export function spawnEnemy(state, x, z, hp) {
   state.enemies.push(e);
   return e;
 }
+// Enemies duck for cover to reload or when their HP drops under this line,
+// then peek again — the same burst/accuracy profile the police reuse.
+const COVER_HP = 35;
 export function updateEnemies(state, city, dt, rng) {
   const p = state.player;
   for (const e of state.enemies) {
@@ -20,7 +23,7 @@ export function updateEnemies(state, city, dt, rng) {
     while (dh < -Math.PI) dh += Math.PI * 2;
     e.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, dh));
     e.cooldown -= dt;
-    if (e.hp < 35 && e.state !== 'cover') { e.state = 'cover'; e.coverX = e.x - dx * 0.5; e.coverZ = e.z - dz * 0.5; }
+    if (e.hp < COVER_HP && e.state !== 'cover') { e.state = 'cover'; e.coverX = e.x - dx * 0.5; e.coverZ = e.z - dz * 0.5; }
     if (e.state === 'cover') {
       const cdx = e.coverX - e.x, cdz = e.coverZ - e.z, cd = Math.hypot(cdx, cdz);
       if (cd > 2) { e.x += (cdx / cd) * 4 * dt; e.z += (cdz / cd) * 4 * dt; }

@@ -38,8 +38,10 @@ export function updatePeds(state, city, dt, rng) {
     // Witnessed crime: call police after a short delay.
     if (state.wanted.level > 0 && d < 300 && !q.called) { q.called = true; }
   }
-  // Clean corpses after 25 seconds.
-  state.peds = state.peds.filter(q => q.alive || q.deadTimer < 25);
+  // Corpses linger 25 s (the renderer draws a lying body + blood decal)
+  // before cleanup, so a kill stays visible long enough to read.
+  const CORPSE_KEEP = 25;
+  state.peds = state.peds.filter(q => q.alive || q.deadTimer < CORPSE_KEEP);
 }
 export function killPed(state, ped) {
   ped.alive = false; ped.deadTimer = 0;

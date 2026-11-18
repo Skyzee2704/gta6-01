@@ -16,7 +16,7 @@ export function updateWeather(state, dt, rng) {
   const targetRain = w.kind === 'rain' ? 1 : w.kind === 'cloudy' ? 0.15 : 0;
   w.rain = clamp(w.rain + (targetRain - w.rain) * dt * 0.2, 0, 1);
   // Lightning during heavy rain, every 15-30s.
-  if (w.kind === 'rain' && rng() < dt / 22) { w.lightning = 0.25; state.notices.push('Petir menyambar di kejauhan.'); }
+  if (w.kind === 'rain' && rng() < dt / 22) { w.lightning = 0.25; state.notices.push('Lightning strikes in the distance.'); }
   if (w.lightning > 0) w.lightning -= dt;
 }
 export function gripMultiplier(state) { return state.weather.kind === 'rain' ? 0.85 : 1; }

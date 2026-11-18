@@ -140,7 +140,9 @@ for (let id = 1; id <= 6; id++) {
   const dt = state.time - t0;
   results.push({ id, ok, seconds: dt.toFixed(1), money: state.money, wanted: state.wanted.level });
   console.log(`mission ${id}: ${ok ? 'PASS' : 'FAIL ' + reason} in ${dt.toFixed(1)}s sim, money $${state.money}`);
-  if (dt > 400) { console.error(`mission ${id}: FAIL stalled over 400s`); ok = false; }
+  // A stage that takes over 400 sim-seconds is stuck, not slow.
+  const STALL_LIMIT_S = 400;
+  if (dt > STALL_LIMIT_S) { console.error(`mission ${id}: FAIL stalled over ${STALL_LIMIT_S}s`); ok = false; }
 }
 // Heat must be clearable after the story.
 const w2 = createWorld(1);

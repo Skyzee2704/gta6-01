@@ -1,12 +1,12 @@
 // SOLMAR 3D — every content table in one file, the single source of truth.
 // All names here are invented for Solmar. Nothing from any commercial game.
 export const DISTRICTS = [
-  { id: 'marina', name: 'Solmar Marina', tagline: 'Dermaga, yacht, dan deal di bawah meja', accent: '#2ee6c8', region: 'south' },
-  { id: 'old', name: 'Old Solmar', tagline: 'Jalan sempit, atap terakota, dan sejarah', accent: '#e07840', region: 'west' },
-  { id: 'neon', name: 'Neon Mile', tagline: 'Malam tidak pernah tidur di sini', accent: '#ff4fa3', region: 'east' },
-  { id: 'harbor', name: 'Harbor Docks', tagline: 'Kontainer, crane, dan kargo tanpa nama', accent: '#ffc94d', region: 'far-east' },
-  { id: 'palm', name: 'Palm Heights', tagline: 'Vila di bukit, pemandangan ke laut', accent: '#7fd069', region: 'north-west' },
-  { id: 'downtown', name: 'Downtown', tagline: 'Tiga menara kaca di jantung kota', accent: '#6fb7ff', region: 'north' },
+  { id: 'marina', name: 'Solmar Marina', tagline: 'Marina, yachts, and deals under the table', accent: '#2ee6c8', region: 'south' },
+  { id: 'old', name: 'Old Solmar', tagline: 'Narrow streets, terracotta roofs, and history', accent: '#e07840', region: 'west' },
+  { id: 'neon', name: 'Neon Mile', tagline: 'The night never sleeps here', accent: '#ff4fa3', region: 'east' },
+  { id: 'harbor', name: 'Harbor Docks', tagline: 'Containers, cranes, and nameless cargo', accent: '#ffc94d', region: 'far-east' },
+  { id: 'palm', name: 'Palm Heights', tagline: 'Hilltop villas, views of the sea', accent: '#7fd069', region: 'north-west' },
+  { id: 'downtown', name: 'Downtown', tagline: 'Three glass towers in the heart of the city', accent: '#6fb7ff', region: 'north' },
 ];
 export const VEHICLES = [
   { id: 'sedan', name: 'Sedan Solmar', top: 28, accel: 14, grip: 1.0, len: 4.4, wid: 1.9, hp: 100, price: 0, respect: 0, traffic: true },
@@ -31,10 +31,10 @@ export const WEAPONS = [
   { id: 'molotov', name: 'Molotov Solmar Cocktail', damage: 25, range: 18, rate: 1.0, mag: 6, reserve: 0, price: 100, ammoPrice: 100, respect: 1, auto: false, spread: 0, thrown: true },
 ];
 export const RADIO = [
-  { id: 'golden', name: 'SOLMAR 88.5 Golden Wave', genre: 'synthwave', bpm: 96, color: '#ffc94d', root: 57, wave: 'saw' },
-  { id: 'fuego', name: 'CALLE SOLMAR 95.7 Fuego Latino', genre: 'dembow', bpm: 92, color: '#ff4f6d', root: 55, wave: 'square' },
-  { id: 'tide', name: 'PASIR 101.3 Tide FM', genre: 'dub lo-fi', bpm: 74, color: '#2ee6c8', root: 50, wave: 'sine' },
-  { id: 'pulse', name: 'PULSE SOLMAR 104.9 Neon Club', genre: 'electro house', bpm: 122, color: '#ff4fa3', root: 52, wave: 'saw' },
+  { id: 'golden', name: 'SOLMAR 88.5 Golden Wave', genre: 'synthwave', bpm: 96, color: '#ffc94d', root: 57, wave: 'saw', kick: [0, 4, 8, 12], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], tracks: ['Sunset Over Marina', 'Golden Hour Drive', 'Neon Palm Nights'] },
+  { id: 'fuego', name: 'CALLE SOLMAR 95.7 Fuego Latino', genre: 'dembow', bpm: 92, color: '#ff4f6d', root: 55, wave: 'square', kick: [0, 3, 6, 8, 11, 14], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], tracks: ['Calle Fuego', 'Ritmo de la Playa', 'Baila Solmar'] },
+  { id: 'tide', name: 'PASIR 101.3 Tide FM', genre: 'dub lo-fi', bpm: 74, color: '#2ee6c8', root: 50, wave: 'sine', kick: [0, 8], snare: [4, 12], hat: [0, 4, 8, 12], tracks: ['Low Tide Dub', 'Sand and Static', 'Slow Harbor'] },
+  { id: 'pulse', name: 'PULSE SOLMAR 104.9 Neon Club', genre: 'electro house', bpm: 122, color: '#ff4fa3', root: 52, wave: 'saw', kick: [0, 4, 8, 12], snare: [4, 12], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], tracks: ['Neon Club Anthem', 'Four on the Floor', 'Midnight Pulse'] },
 ];
 export const CRIMES = [
   { id: 'gunshot', heat: 0.15, min: 0 }, { id: 'assault', heat: 0.35, min: 0 },
@@ -46,29 +46,29 @@ export const CRIMES = [
 export const RESPECT_LEVELS = [0, 350, 900, 1700, 2800, 4200, 6000, 8500];
 export const BRANDS = ['SOLAR COLA', 'MARINA GIN', 'PALMA JUICE', 'NEONADE SOLMAR', 'CORAL MOBILE', 'GOLDEN TIDE', 'VULTURE ENERGY', 'ROSA COFFEE', 'HARBOR BREAD', 'SUNSET RUM', 'PALM AIR', 'TIDAL SNACKS'];
 export const HOTELS = ['HOTEL MARINA', 'THE PALMERA', 'CASA DEL SOL', 'HOTEL CORAL', 'THE SEAVIEW', 'MIRAMAR GRAND', 'HOTEL LUNA', 'THE DOCKMASTER', 'PALM COURT', 'HOTEL BRISA'];
-export const NEON_COLORS = ['coral', 'teal', 'kuning matahari', 'pink', 'violet', 'lime', 'biru es'];
+export const NEON_COLORS = ['coral', 'teal', 'sunny yellow', 'pink', 'violet', 'lime', 'ice blue'];
 export const TAPE_TITLES = ['Golden Hour Drive', 'Marina Nights', 'Neon Mile Blues', 'Harbor Lights', 'Palm Tree Shadows', 'Downtown Rain', 'Sunset Over Solmar', 'The Vultures Song', 'Rosas Kitchen Radio', 'Cruiser Chase', 'Old Solmar Waltz', 'Dockside Rumba', 'Highway to the Hills', 'Midnight at the Marina', 'The Big Score', 'Coupe in the Rain', 'Seaside Static', 'Three Towers', 'Low Tide Love', 'Streets of Gold'];
 export const STREETS = ['Marina Boulevard', 'Palm Avenue', 'Neon Strip', 'Harbor Road', 'Dock Lane', 'Hillcrest Drive', 'Downtown Avenue', 'Coral Street', 'Sunset Way', 'Old Town Lane', 'Lighthouse Road', 'Market Street'];
 export const CAST = [
   { id: 'milo', name: 'Milo Cruz', role: 'Getaway driver', skin: '#d9a066', hair: '#2a1a12', cloth: '#ffc94d', detail: 'yellow jacket' },
-  { id: 'rosa', name: 'Rosa Delgado', role: 'Bengkel + diner owner', skin: '#c98a5a', hair: '#3a2a1a', cloth: '#c0392b', detail: 'red bandana' },
+  { id: 'rosa', name: 'Rosa Delgado', role: 'Garage + diner owner', skin: '#c98a5a', hair: '#3a2a1a', cloth: '#c0392b', detail: 'red bandana' },
   { id: 'kane', name: 'Kane', role: 'Boss The Vultures', skin: '#c9a184', hair: '#111111', cloth: '#222222', detail: 'leather jacket + chain' },
   { id: 'juno', name: 'Juno', role: 'Wheelwoman', skin: '#e8b48a', hair: '#ff4fa3', cloth: '#2ee6c8', detail: 'pink hair + aviators' },
   { id: 'mags', name: 'Mags', role: 'Fixer', skin: '#d9a066', hair: '#888888', cloth: '#6b4a2a', detail: 'hat + moustache' },
-  { id: 'benning', name: 'Sersan Benning', role: 'SPD, polisi korup', skin: '#caa27a', hair: '#222222', cloth: '#2a4a7a', detail: 'uniform + cap' },
+  { id: 'benning', name: 'Sergeant Benning', role: 'SPD, corrupt cop', skin: '#caa27a', hair: '#222222', cloth: '#2a4a7a', detail: 'uniform + cap' },
 ];
 export const MISSIONS = [
-  { id: 1, chapter: 1, title: 'First Wheels', giver: 'rosa', payout: 200, respect: 100, blurb: 'Ambil mobil Rosa di dermaga, bawa ke bengkel. Jangan bikin ribut.', start: [-260, 190], target: [-180, 60] },
-  { id: 2, chapter: 2, title: 'Getaway Driver', giver: 'rosa', payout: 400, respect: 200, blurb: 'Antar teman Rosa keluar dari kordon polisi, lalu hilangkan polisi.', start: [-180, 60], target: [120, -160] },
-  { id: 3, chapter: 3, title: 'The Collector', giver: 'mags', payout: 600, respect: 300, blurb: 'Ambil 3 paket di Marina, Neon Mile, Harbor Docks sebelum 240 detik habis.', start: [0, 0], target: [0, 0], timer: 240 },
-  { id: 4, chapter: 4, title: 'Vulture Trouble', giver: 'rosa', payout: 800, respect: 400, blurb: 'Vultures menyerang bengkel. Bertahan 2 gelombang, lalu kejar mobil mereka.', start: [-180, 60], target: [-180, 60] },
-  { id: 5, chapter: 5, title: 'The Big Score', giver: 'juno', payout: 1200, respect: 600, blurb: 'Curi sports car dari lot yang dijaga, antar ke pembeli di Palm Heights.', start: [200, 40], target: [-200, -180], timer: 180 },
-  { id: 6, chapter: 6, title: 'King of Solmar', giver: 'rosa', payout: 1500, respect: 1000, blurb: 'Jemput kru, rampok truk vault di Harbor Docks, kabur wanted 4 ke safehouse.', start: [-180, 60], target: [260, 40], timer: 300 },
+  { id: 1, chapter: 1, title: 'First Wheels', giver: 'rosa', payout: 200, respect: 100, blurb: 'Pick up Rosa\'s car at the pier, bring it to the garage. Don\'t make a scene.', start: [-260, 190], target: [-180, 60] },
+  { id: 2, chapter: 2, title: 'Getaway Driver', giver: 'rosa', payout: 400, respect: 200, blurb: 'Get Rosa\'s friend out of the police cordon, then lose the cops.', start: [-180, 60], target: [120, -160] },
+  { id: 3, chapter: 3, title: 'The Collector', giver: 'mags', payout: 600, respect: 300, blurb: 'Pick up 3 packages in Marina, Neon Mile, Harbor Docks before the 240 seconds run out.', start: [0, 0], target: [0, 0], timer: 240 },
+  { id: 4, chapter: 4, title: 'Vulture Trouble', giver: 'rosa', payout: 800, respect: 400, blurb: 'The Vultures are hitting the garage. Survive 2 waves, then chase their car.', start: [-180, 60], target: [-180, 60] },
+  { id: 5, chapter: 5, title: 'The Big Score', giver: 'juno', payout: 1200, respect: 600, blurb: 'Steal the sports car from the guarded lot, deliver it to the buyer in Palm Heights.', start: [200, 40], target: [-200, -180], timer: 180 },
+  { id: 6, chapter: 6, title: 'King of Solmar', giver: 'rosa', payout: 1500, respect: 1000, blurb: 'Pick up the crew, rob the vault truck at Harbor Docks, escape at wanted 4 to the safehouse.', start: [-180, 60], target: [260, 40], timer: 300 },
 ];
 export const RACES = [
-  { id: 'marina', name: 'Marina Sprint', reward: 300, checkpoints: [[-260, 200], [-160, 200], [-60, 200], [40, 200], [140, 200], [240, 200]] },
-  { id: 'neon', name: 'Neon Mile Circuit', reward: 500, checkpoints: [[200, 40], [200, -40], [200, -120], [120, -120], [40, -120], [40, 40], [120, 40], [200, 40]] },
-  { id: 'downtown', name: 'Downtown Rush', reward: 800, checkpoints: [[-40, -160], [40, -160], [120, -160], [120, -80], [40, -80], [-40, -80], [-40, -160]] },
+  { id: 'marina', name: 'Marina Sprint', reward: 300, rivals: ['Neri Flint', 'Zella Coil', 'Ivo Switch'], checkpoints: [[-260, 200], [-160, 200], [-60, 200], [40, 200], [140, 200], [240, 200]] },
+  { id: 'neon', name: 'Neon Mile Circuit', reward: 500, rivals: ['Neri Flint', 'Zella Coil', 'Ivo Switch'], checkpoints: [[200, 40], [200, -40], [200, -120], [120, -120], [40, -120], [40, 40], [120, 40], [200, 40]] },
+  { id: 'downtown', name: 'Downtown Rush', reward: 800, rivals: ['Neri Flint', 'Zella Coil', 'Ivo Switch'], checkpoints: [[-40, -160], [40, -160], [120, -160], [120, -80], [40, -80], [-40, -80], [-40, -160]] },
 ];
 export const PROPERTIES = [
   { id: 'safehouse', name: 'Safehouse Marina', price: 0, income: 0, garage: 1, pos: [-260, 190] },

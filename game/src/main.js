@@ -4,7 +4,7 @@
 import { STEP, SEED } from './config.js';
 import { createRng } from './random.js';
 import { createWorld, emptyInput, EVENT_WASTED } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_MAP, ACTION_TOPDOWN, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_MAP, ACTION_TOPDOWN, ACTION_RADIO_NEXT, ACTION_RADIO_PREV, createInput } from './input.js';
 import { createRenderer, SCREEN_TITLE, SCREEN_PLAY, SCREEN_PAUSED, SCREEN_OVER, SCREEN_MAP } from './render.js';
 import { stageShot } from './shots.js';
 import { createHud } from './hud.js';
@@ -86,6 +86,10 @@ function runGame() {
     else if (actions & ACTION_PAUSE && screen === SCREEN_PAUSED) screen = SCREEN_PLAY;
     else if (actions & ACTION_MAP && (screen === SCREEN_PLAY || screen === SCREEN_MAP)) screen = screen === SCREEN_MAP ? SCREEN_PLAY : SCREEN_MAP;
     else if (actions & ACTION_TOPDOWN && screen === SCREEN_PLAY) renderer.setTopDown(!renderer.rig.topDown);
+    // Radio: edge-triggered, once per frame from the actions bitmask —
+    // never inside the fixed-step loop (isHeld there spun stations).
+    if (actions & ACTION_RADIO_NEXT) state._radio = audio.setStation((state._radio || 0) + 1);
+    if (actions & ACTION_RADIO_PREV) state._radio = audio.setStation((state._radio || 0) - 1);
     if (screen !== SCREEN_PLAY) { accumulator = 0; hud.update(screen); minimap.draw(); renderer.draw(state, screen, emptyInput(), dtReal); return; }
     accumulator += dtReal;
     while (accumulator >= STEP) {
@@ -110,9 +114,6 @@ function runGame() {
       if (inp.fire && !state.player.onFoot && state.weapons.current === 'smg') { if (fireWeapon(state, city, world.rng)) audio.gun('smg'); }
       prevFire = inp.fire;
       tickFireCooldown(state, STEP);
-      // Radio: Q/E in a vehicle cycles stations (E is enter, so use [ ] keys).
-      if (input.isHeld('BracketRight')) { state._radio = audio.setStation((state._radio || 0) + 1); }
-      if (input.isHeld('BracketLeft')) { state._radio = audio.setStation((state._radio || 0) - 1); }
       // N starts the next mission, T starts a taxi fare, G starts a race.
       if (input.isHeld('KeyN') && !state.mission.active) {
         const next = [1, 2, 3, 4, 5, 6].find(id => !state.mission.done[id - 1]);
@@ -133,6 +134,7 @@ function runGame() {
       if (screen !== SCREEN_PLAY) break;
     }
     renderer.draw(state, screen, input.read(), dtReal);
+    state._track = audio.getTrack(); // now-playing track for the HUD.
     hud.update(screen);
     minimap.draw();
     if (state.player.health < 100) audio.engine(state.player.speed || 0);

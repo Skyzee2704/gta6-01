@@ -1,1 +1,6 @@
-{"type":"module"}
+{
+  "type": "module",
+  "scripts": {
+    "test": "node ../tools/playtest.mjs && node ../tools/simCheck.mjs && node ../tools/missionCheck.mjs && node ../tools/cityCheck.mjs"
+  }
+}

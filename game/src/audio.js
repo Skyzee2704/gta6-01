@@ -42,9 +42,10 @@ export function createAudio() {
       const stepDur = 60 / st.bpm / 4;
       while (nextTime < ctx.currentTime + 0.2) {
         const s16 = step % 16;
-        if (s16 % 4 === 0) tone(55, 0.15, 'sine', 0.5, nextTime);
-        if (s16 === 4 || s16 === 12) noise(0.08, 0.25, nextTime);
-        if (s16 % 2 === 0) tone(880, 0.03, 'square', 0.06, nextTime);
+        // Per-station rhythm: each station has its own kick/snare/hat pattern.
+        if (st.kick.includes(s16)) tone(55, 0.15, 'sine', 0.5, nextTime);
+        if (st.snare.includes(s16)) noise(0.08, 0.25, nextTime);
+        if (st.hat.includes(s16)) tone(880, 0.03, 'square', 0.06, nextTime);
         const scale = [0, 3, 5, 7, 10];
         const note = st.root + scale[(step * 2) % 5];
         tone(440 * Math.pow(2, (note - 69) / 12), 0.18, st.wave, 0.12, nextTime);
@@ -56,6 +57,8 @@ export function createAudio() {
     ensure, startRadio,
     setStation(i) { station = ((i % RADIO.length) + RADIO.length) % RADIO.length; return station; },
     getStation() { return station; },
+    // Now playing: the track rotates every 32 steps (2 bars) per station.
+    getTrack() { const st = RADIO[station]; return st.tracks[Math.floor(step / 32) % st.tracks.length]; },
     gun(id) { ensure(); if (id === 'shotgun') { noise(0.25, 0.5); tone(90, 0.2, 'sawtooth', 0.4); } else if (id === 'sniper') { noise(0.4, 0.4); tone(60, 0.4, 'sawtooth', 0.3); } else { noise(0.12, 0.35); tone(180, 0.08, 'square', 0.25); } },
     siren() { ensure(); tone(700, 0.3, 'sine', 0.08); setTimeout(() => tone(950, 0.3, 'sine', 0.08), 300); },
     pickup() { ensure(); tone(880, 0.1, 'sine', 0.25); setTimeout(() => tone(1320, 0.12, 'sine', 0.25), 90); },

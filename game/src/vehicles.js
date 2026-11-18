@@ -18,7 +18,7 @@ export function nearestVehicle(state, x, z, maxD) {
 }
 export function enterVehicle(state, v, rng) {
   const p = state.player;
-  if (v.def.locked) { state.notices.push('Bus terkunci. Tidak bisa dicuri.'); return false; }
+  if (v.def.locked) { state.notices.push('Bus is locked. Can\'t be stolen.'); return false; }
   const witnessed = state.peds.some(q => q.alive && dist2(q.x, q.z, p.x, p.z) < 90000) || state.cops.some(c => dist2(c.x, c.z, p.x, p.z) < 270400);
   if (v.parked || !v.driver) {
     if (v.driver === 'civilian') {

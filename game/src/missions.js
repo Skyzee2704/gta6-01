@@ -6,12 +6,12 @@ import { dist2 } from './random.js';
 import { spawnEnemy } from './combat.js';
 
 const DIALOGUE = {
-  1: ['Rosa: "Milo. Mobilku di dermaga. Ambil, bawa ke sini. Jangan bikin ribut."'],
-  2: ['Rosa: "Antar Juno keluar dari kordon. Polisi di mana-mana — jangan panik."', 'Juno: "Gas, Milo. Aku yang pegang peta."'],
-  3: ['Mags: "Tiga paket, tiga distrik, 150 detik. Jangan mampir beli kopi."'],
-  4: ['Kane: "Cruz. Kau seharusnya tidak kembali ke Solmar."', 'Rosa: "Mereka di bengkel! Tahan mereka, Milo!"'],
-  5: ['Juno: "Sports car itu di lot Harbor. Ambil diam-diam, antar ke Palm Heights."'],
-  6: ['Rosa: "Ini dia, Milo. Truk vault di Harbor Docks. Tahan polisi 12 detik."', 'Kane: "Kau tidak akan keluar dari kota ini hidup-hidup."'],
+  1: ['Rosa: "Milo. My car is at the pier. Grab it, bring it here. Don\'t make a scene."'],
+  2: ['Rosa: "Get Juno out of the cordon. Cops everywhere — don\'t panic."', 'Juno: "Go, Milo. I\'ve got the map."'],
+  3: ['Mags: "Three packages, three districts, 150 seconds. Don\'t stop for coffee."'],
+  4: ['Kane: "Cruz. You should never have come back to Solmar."', 'Rosa: "They\'re at the garage! Hold them off, Milo!"'],
+  5: ['Juno: "That sports car is in the Harbor lot. Take it quiet, deliver it to Palm Heights."'],
+  6: ['Rosa: "Here it is, Milo. The vault truck at Harbor Docks. Hold the cops for 12 seconds."', 'Kane: "You\'re not getting out of this city alive."'],
 };
 export function startMission(state, id) {
   const def = MISSIONS.find(m => m.id === id);
@@ -22,8 +22,8 @@ export function startMission(state, id) {
   state.dialogue = (DIALOGUE[id] || []).map(t => ({ text: t, t: 0 }));
   state.player.x = def.start[0]; state.player.z = def.start[1];
   if (id === 4) { for (let i = 0; i < 3; i++) spawnEnemy(state, def.start[0] + 10 + i * 6, def.start[1] + 10, 100); }
-  if (id === 6) { state.hour = 21; state.flags.nightMission = true; state.notices.push('Malam itu...'); }
-  state.notices.push(`Misi ${id}: ${def.title} — ${def.blurb}`);
+  if (id === 6) { state.hour = 21; state.flags.nightMission = true; state.notices.push('That night...'); }
+  state.notices.push(`Mission ${id}: ${def.title} — ${def.blurb}`);
   return true;
 }
 export function completeMission(state) {
@@ -35,9 +35,13 @@ export function completeMission(state) {
   state.mission.active = false;
   state.notices.push(`JOB COMPLETE: ${def.title} +$${def.payout} +${def.respect} respect`);
   state._autosave = true;
+  // Per-mission results screen (HUD shows it for 6 s): payout + the
+  // mission's tracked stats (time, shots, hits, kills, crashes, top speed).
+  const st = state.mission.stats;
+  state.missionResult = { title: def.title, payout: def.payout, respect: def.respect, time: st.time, shots: st.shots, hits: st.hits, kills: st.kills, crashes: st.crashes, topSpeed: st.topSpeed, at: state.time };
   const next = MISSIONS.find(m => m.id === def.id + 1);
-  if (next) state.notices.push(`Misi baru terbuka: ${next.title}`);
-  else state.notices.push('EMPIRE: King of Solmar! Free roam terbuka, semua misi bisa diulang.');
+  if (next) state.notices.push(`New mission unlocked: ${next.title}`);
+  else state.notices.push('EMPIRE: King of Solmar! Free roam open, every mission replayable.');
 }
 export function failMission(state, reason) {
   state.mission.active = false;
@@ -56,14 +60,14 @@ export function updateMissions(state, city, dt, rng) {
   const goto = (x, z, r) => dist2(x, z, p.x, p.z) < (r || 25) * (r || 25);
   switch (m.id) {
     case 1: {
-      if (m.stage === 0 && goto(-260, 200, 12)) { m.stage = 1; state.notices.push('Mobil Rosa ditemukan. Naik (E), bawa ke bengkel.'); }
+      if (m.stage === 0 && goto(-260, 200, 12)) { m.stage = 1; state.notices.push("Rosa's car found. Get in (E), drive it to the garage."); }
       else if (m.stage === 1 && !p.onFoot && goto(-180, 60, 25)) completeMission(state);
       break;
     }
     case 2: {
       if (m.stage === 0 && !p.onFoot) { m.stage = 1; state.wanted.heat = 1.2; state.wanted.level = 1; state.wanted.spotted = true; }
       else if (m.stage === 1 && goto(120, -160, 20) && state.wanted.level === 0) completeMission(state);
-      else if (m.stage === 1 && goto(120, -160, 20) && state.wanted.level > 0) state.notices.push('Masih dikejar! Hilangkan wanted dulu.');
+      else if (m.stage === 1 && goto(120, -160, 20) && state.wanted.level > 0) state.notices.push('Still being chased! Lose the cops first.');
       break;
     }
     case 3: {
@@ -76,8 +80,8 @@ export function updateMissions(state, city, dt, rng) {
     }
     case 4: {
       const alive = state.enemies.filter(e => e.alive).length;
-      if (m.stage === 0 && alive === 0) { m.stage = 1; for (let i = 0; i < 3; i++) spawnEnemy(state, -170 + i * 8, 80, 100); state.notices.push('Gelombang 2!'); }
-      else if (m.stage === 1 && alive === 0) { m.stage = 2; state.notices.push('Kejar mobil Vulture yang kabur!'); }
+      if (m.stage === 0 && alive === 0) { m.stage = 1; for (let i = 0; i < 3; i++) spawnEnemy(state, -170 + i * 8, 80, 100); state.notices.push('Wave 2!'); }
+      else if (m.stage === 1 && alive === 0) { m.stage = 2; state.notices.push('Chase the fleeing Vulture car!'); }
       else if (m.stage === 2) {
         const vulture = state.vehicles.find(v => v.model === 'coupe' && v.driver === 'vulture');
         if (!vulture) {
@@ -88,15 +92,15 @@ export function updateMissions(state, city, dt, rng) {
       break;
     }
     case 5: {
-      if (m.stage === 0 && !p.onFoot && state.vehicles.find(v => v.id === p.vehicleId)?.model === 'sports') { m.stage = 1; state.notices.push('Sports car didapat. Antar ke Palm Heights.'); }
+      if (m.stage === 0 && !p.onFoot && state.vehicles.find(v => v.id === p.vehicleId)?.model === 'sports') { m.stage = 1; state.notices.push('Sports car secured. Deliver it to Palm Heights.'); }
       else if (m.stage === 1 && goto(-200, -180, 25)) completeMission(state);
       break;
     }
     case 6: {
-      if (m.stage === 0 && goto(260, 40, 15)) { m.stage = 1; m.holdTimer = 12; state.notices.push('BOBOL VAULT: tahan polisi 12 detik!'); state.wanted.heat = 4; state.wanted.level = 4; state.wanted.spotted = true; }
+      if (m.stage === 0 && goto(260, 40, 15)) { m.stage = 1; m.holdTimer = 12; state.notices.push('CRACK THE VAULT: hold the cops for 12 seconds!'); state.wanted.heat = 4; state.wanted.level = 4; state.wanted.spotted = true; }
       else if (m.stage === 1) {
         m.holdTimer = (m.holdTimer ?? 12) - dt;
-        if (m.holdTimer <= 0) { m.stage = 2; state.notices.push('Vault terbuka! Kabur ke safehouse!'); }
+        if (m.holdTimer <= 0) { m.stage = 2; state.notices.push('Vault open! Escape to the safehouse!'); }
       } else if (m.stage === 2 && goto(-260, 190, 25) && state.wanted.level === 0) completeMission(state);
       break;
     }

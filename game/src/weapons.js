@@ -10,11 +10,11 @@ export function buyWeapon(state, id) {
   const def = weaponDef(id);
   if (!def) return false;
   if (state.weapons.owned[id]) return buyAmmo(state, id);
-  if (state.money < def.price) { state.notices.push(`Uang tidak cukup untuk ${def.name} ($${def.price}).`); return false; }
+  if (state.money < def.price) { state.notices.push(`Not enough money for ${def.name} ($${def.price}).`); return false; }
   if (state.respectLevel < def.respect) { state.notices.push(`${def.name} butuh Respect level ${def.respect}.`); return false; }
   state.money -= def.price;
   state.weapons.owned[id] = { mag: def.mag, reserve: def.reserve };
-  state.notices.push(`${def.name} dibeli!`);
+  state.notices.push(`${def.name} bought!`);
   return true;
 }
 export function buyAmmo(state, id) {
@@ -79,6 +79,7 @@ export function fireWeapon(state, city, rng) {
     }
     if (best) {
       state.mission.stats.hits += 1;
+      state._hitMark = state.time; // hit marker: HUD shows an X for 0.3 s.
       if (best.kind === 'enemy') { best.obj.hp -= def.damage; if (best.obj.hp <= 0) { best.obj.alive = false; state.mission.stats.kills += 1; } }
       else if (best.kind === 'ped') { killPed(state, best.obj); if (!silent) addCrimeHeat(state, 'kill'); }
       else if (best.kind === 'vehicle') { best.obj.hp -= def.damage; if (best.obj.driver === 'police') addCrimeHeat(state, 'shootCopCar'); }

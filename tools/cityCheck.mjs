@@ -3,8 +3,10 @@
 // in the sea. Prints generation time and counts.
 import { createCity, findPath } from '../game/src/city.js';
 
+// The same three seeds every run, so generation stays comparable.
+const SEEDS = [1, 2, 3];
 let ok = true;
-for (const seed of [1, 2, 3]) {
+for (const seed of SEEDS) {
   const t0 = process.hrtime.bigint();
   const city = createCity(seed);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;

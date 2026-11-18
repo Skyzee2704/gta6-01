@@ -1,4 +1,5 @@
-// Seeded RNG for the sim (mulberry32) plus a stateless hash for the renderer.
+// Seeded RNG for the sim (mulberry32: a 32-bit state, one multiply-xor per
+// draw, full period 2^32) plus a stateless hash for the renderer.
 // Rule: the sim only ever draws from a stateful seeded RNG so a run from the
 // same seed replays identically; the renderer never touches sim RNG state.
 export function createRng(seed) {

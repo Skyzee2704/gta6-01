@@ -5,7 +5,9 @@ import { dist2 } from './random.js';
 export function updateBoats(state, city, dt, input, rng) {
   const p = state.player;
   for (const b of state.boats) {
-    b.bob += dt * 1.2;
+    // Bob rate: gentle sinusoidal swell, slow enough to feel like water.
+    const BOB_RATE = 1.2;
+    b.bob += dt * BOB_RATE;
     if (!b.driver) continue;
     const top = b.model === 'speedboat' ? 28 : 22;
     if (input.forward) b.speed = Math.min(top, b.speed + 8 * dt);

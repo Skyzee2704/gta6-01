@@ -12,7 +12,9 @@ startMission(state, 1);
 state.wanted.heat = 4.2; state.wanted.level = 4; state.wanted.spotted = true;
 const t0 = process.hrtime.bigint();
 let maxWanted = 0, maxCops = 0, events = 0, nanAt = -1;
-for (let i = 0; i < 7200; i++) {
+// 120 seconds of sim (7200 fixed steps) at wanted 4.
+const STEPS = 7200;
+for (let i = 0; i < STEPS; i++) {
   const inp = emptyInput();
   inp.forward = true;
   inp.left = Math.sin(i * 0.01) > 0.3;
@@ -28,8 +30,8 @@ for (let i = 0; i < 7200; i++) {
   if (bad && nanAt < 0) nanAt = i;
 }
 const us = Number(process.hrtime.bigint() - t0) / 1000;
-const perStep = us / 7200;
-console.log(`simCheck: 7200 steps in ${us.toFixed(0)}us (${perStep.toFixed(2)}us/step)`);
+const perStep = us / STEPS;
+console.log(`simCheck: ${STEPS} steps in ${us.toFixed(0)}us (${perStep.toFixed(2)}us/step)`);
 console.log(`vehicles=${state.vehicles.length} peds=${state.peds.length} cops=${state.cops.length} particles=${state.particles.filter(p => p.active).length} maxWanted=${maxWanted} maxCops=${maxCops}`);
 console.log(`player hp=${state.player.health} money=$${state.money} mission=${state.mission.id} active=${state.mission.active} wanted=${state.wanted.level}`);
 if (nanAt >= 0) { console.error(`FAIL: NaN position at step ${nanAt}`); process.exit(1); }

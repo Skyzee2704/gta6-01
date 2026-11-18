@@ -9,7 +9,7 @@ import { fireWeapon } from './weapons.js';
 export function stageShot(name, world) {
   const state = world.state;
   const rng = world.rng;
-  world.state.hour = 18.25;
+  world.state.hour = 18.2;
   if (name === 'title') {
     state.hour = 18.67;
     state.money = 4850; state.day = 3; state.mission.done = [true, true, true, false, false, false];
@@ -27,7 +27,7 @@ export function stageShot(name, world) {
     return { screen: SCREEN_MAP, cam: null };
   }
   if (name === 'onfoot') {
-    state.hour = 21.7;
+    state.hour = 18.7; // golden hour, not night — the player must be visible
     state.player.x = 120; state.player.z = 40; state.player.heading = Math.PI;
     state.weapons.owned.rifle = { mag: 30, reserve: 90 }; state.weapons.current = 'rifle';
     startMission(state, 4);
@@ -40,7 +40,7 @@ export function stageShot(name, world) {
       if (state._muzzle) break;
     }
     state.notices = [];
-    state.dialogue = [{ text: 'Kane: "Cruz. Kau seharusnya tidak kembali ke Solmar."', t: 0 }];
+    state.dialogue = [{ text: 'Kane: "Cruz. You should never have come back to Solmar."', t: 0 }];
     return { screen: SCREEN_PLAY, cam: null, yaw: Math.PI };
   }
   // cover: golden-hour chase, wanted 4, mission 6 escape, heli searchlight.

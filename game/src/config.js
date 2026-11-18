@@ -1,8 +1,8 @@
 // SOLMAR 3D — every tuning number in one place. City is 640 x 480 units,
-// flat ground at y = 0, golden-hour start 18:15. All sim units are metres-ish.
+// flat ground at y = 0, golden-hour start 18:12. All sim units are metres-ish.
 export const STEP = 1 / 60;
 export const SEED = 1;
-export const START_HOUR = 18.25;
+export const START_HOUR = 18.2;
 export const CITY = { w: 640, h: 480, roadW: 16, walkW: 4 };
 export const PLAYER = { walk: 6, run: 9, jumpV: 7, gravity: 20, health: 100, armorMax: 100 };
 export const CAMERA = { boom: 9, height: 4, fovMin: 58, fovMax: 74, driveBoom: 13, driveHeight: 5 };

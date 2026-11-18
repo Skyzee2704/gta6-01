@@ -7,6 +7,8 @@ export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_MAP = 4;
 export const ACTION_TOPDOWN = 8;
+export const ACTION_RADIO_NEXT = 16;
+export const ACTION_RADIO_PREV = 32;
 
 export function createInput(canvas) {
   const held = new Set();
@@ -19,6 +21,10 @@ export function createInput(canvas) {
     if (event.code === 'Escape') actions |= ACTION_PAUSE;
     if (event.code === 'KeyM') actions |= ACTION_MAP;
     if (event.code === 'KeyV') actions |= ACTION_TOPDOWN;
+    // Radio: edge-triggered (one station per keydown; keydown ignores
+    // repeats, so holding ] can never spin through the stations).
+    if (event.code === 'BracketRight') actions |= ACTION_RADIO_NEXT;
+    if (event.code === 'BracketLeft') actions |= ACTION_RADIO_PREV;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   });
   window.addEventListener('keyup', (event) => held.delete(event.code));

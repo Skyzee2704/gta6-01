@@ -31,8 +31,8 @@ node serve.ts
 - Wanted 0–5 stars, witnessed-only heat, search zone + escape meter, roadblocks at 3+, NPC heli searchlight at 4+, foot arrest at 1 star
 - 6 story missions, 3 street-race routes with rival AI, 20 Solmar Postcards, Solmar Cab taxi fares, Pay n Spray, safehouse + penthouse ($20,000, $500/day)
 - 2 walk-in interiors: Rosas Diner (eat = heal) and Harbor Arms gun shop (buy guns + ammo)
-- 4 synth radio stations, dynamic weather (clear/cloudy/rain, grip ×0.85 in rain), day/night cycle from 18:15 golden hour, custom bloom
-- HUD + live minimap + full city map (M), save/load (localStorage), deterministic sim (seed 1, fixed step 1/60)
+- 4 synth radio stations (] / [ to change station), dynamic weather (clear/cloudy/rain, grip ×0.85 in rain), day/night cycle from 18:12 golden hour, custom bloom
+- HUD + live minimap + full city map (M), 5-slot weapon bar + police response panel, live race board (place, checkpoint, gap, best), save/load (localStorage), deterministic sim (seed 1, fixed step 1/60)
 
 ## Controls
 
@@ -46,6 +46,7 @@ node serve.ts
 | Click | Fire weapon |
 | R | Reload |
 | Q (hold) | Weapon wheel · 1–7 select weapon |
+| ] / [ | Next / previous radio station |
 | N / T / G | Next mission / taxi fare / street race |
 | M | City map · V top-down view · Esc pause |
 

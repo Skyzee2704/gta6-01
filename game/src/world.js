@@ -7,7 +7,7 @@ import { createCity, buildingAt, clampToCity, inWater } from './city.js';
 import { CRIMES, respectLevel, WEAPONS } from './data.js';
 import { createVehicleState, updateVehicle, enterVehicle, exitVehicle, nearestVehicle } from './vehicles.js';
 import { updateTraffic } from './traffic.js';
-import { updatePeds } from './npc.js';
+import { updatePeds, killPed } from './npc.js';
 import { updatePolice } from './police.js';
 import { updateMissions } from './missions.js';
 import { updateEnemies } from './combat.js';
@@ -83,8 +83,17 @@ export function createWorld(seed) {
   }
   function step(dt, input) {
     const p = state.player;
+    const _ox = p.x, _oz = p.z; // for the lifetime distance stat (this step)
     state.time += dt;
     tickFireCooldown(state, dt);
+    // Race countdown (3-2-1-GO): tick it down here, in the sim itself, so it
+    // runs in the browser and in headless tests alike — and block driving /
+    // movement input while it runs, so the player and the rivals are held
+    // on the grid until GO.
+    if (state.race.active && (state.race.countdown || 0) > 0) {
+      state.race.countdown = Math.max(0, state.race.countdown - dt);
+      input = { ...input, forward: false, back: false, left: false, right: false, run: false, jump: false, interact: false, enterVehicle: false, handbrake: false, fire: false };
+    }
     state.hour += dt * 0.01; // 0.6 minutes per second
     if (state.hour >= 24) { state.hour -= 24; state.day += 1; if (state.penthouseOwned) state.money += ECONOMY.penthouseIncome; }
     // District banner.
@@ -97,7 +106,7 @@ export function createWorld(seed) {
     if (w.level > 0 && !w.spotted) {
       w.escape += dt;
       const need = 5 + w.level * 1.5;
-      if (w.escape > need) { w.heat = 0; w.level = 0; w.escape = 0; state.stats.escapes += 1; state.notices.push('Wanted hilang. Kamu lolos.'); }
+      if (w.escape > need) { w.heat = 0; w.level = 0; w.escape = 0; state.stats.escapes += 1; state.notices.push('Wanted cleared. You got away.'); }
     }
     if (w.level > 0) {
       const dSearch = Math.hypot(p.x - w.searchX, p.z - w.searchZ);
@@ -109,8 +118,8 @@ export function createWorld(seed) {
       let mx = 0, mz = 0;
       if (input.forward) { mx += Math.sin(p.heading); mz += Math.cos(p.heading); }
       if (input.back) { mx -= Math.sin(p.heading); mz -= Math.cos(p.heading); }
-      if (input.left) { mx -= Math.cos(p.heading); mz += Math.sin(p.heading); }
-      if (input.right) { mx += Math.cos(p.heading); mz -= Math.sin(p.heading); }
+      if (input.left) { mx += Math.cos(p.heading); mz -= Math.sin(p.heading); }
+      if (input.right) { mx -= Math.cos(p.heading); mz += Math.sin(p.heading); }
       const len = Math.hypot(mx, mz) || 1;
       p.x += (mx / len) * run * dt * (mx || mz ? 1 : 0);
       p.z += (mz / len) * run * dt * (mx || mz ? 1 : 0);
@@ -137,6 +146,33 @@ export function createWorld(seed) {
     updatePeds(state, city, dt, rng);
     updatePolice(state, city, dt, rng);
     updateEnemies(state, city, dt, rng);
+    // Car-pedestrian collision. A moving non-police car that hits the player
+    // on foot hurts them (the "run over" fix). A ped is only killed — and
+    // only adds heat — when the PLAYER's car hits them; traffic cars brake
+    // for peds instead (traffic.js) and never give the player heat.
+    for (const v of state.vehicles) {
+      const sp = Math.abs(v.speed || 0);
+      if (sp < 3 || v.driver === 'police') continue;
+      if (p.onFoot && !p.dead && dist2(v.x, v.z, p.x, p.z) < 2.56) {
+        damagePlayer(Math.min(40, Math.round(sp * 1.5)));
+        const dx = p.x - v.x, dz = p.z - v.z, dd = Math.hypot(dx, dz) || 1;
+        p.x += (dx / dd) * 3; p.z += (dz / dd) * 3; p.vy = Math.max(p.vy, 4);
+        collideBuildings(state, p);
+        state.particles.push({ active: true, x: p.x, y: 1.2, z: p.z, vx: 0, vy: 0, vz: 0, kind: 'spark', life: 0.3, max: 0.3 });
+        state.notices.push('Run over by a car!');
+        v.speed *= 0.7;
+      }
+      if (v.driver !== 'player') continue;
+      for (const q of state.peds) {
+        if (!q.alive) continue;
+        if (dist2(v.x, v.z, q.x, q.z) < 2.56) {
+          killPed(state, q);
+          addHeat('hitPed', witnessesNear(60));
+          state.notices.push('Pedestrian run over!');
+          v.speed *= 0.7;
+        }
+      }
+    }
     updateMissions(state, city, dt, rng);
     updateBoats(state, city, dt, input, rng);
     updateAircraft(state, city, dt, input, rng);
@@ -153,9 +189,12 @@ export function createWorld(seed) {
         t.taken = true; state.tapesTaken += 1;
         state.money += ECONOMY.tapeMoney; addRespect(ECONOMY.tapeRespect);
         state.notices.push(`Postcard: ${t.title} +$${ECONOMY.tapeMoney}`);
-        if (state.tapesTaken === 20) { state.money += ECONOMY.tapeBonus; state.weapons.owned.sniper = { mag: 5, reserve: 15 }; state.notices.push('Semua 20 Postcard! Bonus $5000 + Sniper Longeye 308 gratis.'); }
+        if (state.tapesTaken === 20) { state.money += ECONOMY.tapeBonus; state.weapons.owned.sniper = { mag: 5, reserve: 15 }; state.notices.push('All 20 Postcards! Bonus $5000 + free Sniper Longeye 308.'); }
       }
     }
+    // Lifetime distance (pause STATS): the player's movement this step,
+    // counted before any death respawn teleports the player.
+    state.stats.distance += Math.hypot(p.x - _ox, p.z - _oz);
     // Death / busted flags surfaced as events; the sim respawns the player
     // at the safehouse hospital (fee + half ammo) so play continues.
     let events = EVENT_NONE;
@@ -176,16 +215,16 @@ export function createWorld(seed) {
     for (const s of city.paynspray) {
       if (dist2(p.x, p.z, s.x, s.z) < 36 && state.wanted.level > 0) {
         const cost = ECONOMY.resprayBase + state.wanted.level * ECONOMY.resprayPerLevel;
-        if (state.money >= cost) { state.money -= cost; state.wanted.heat = 0; state.wanted.level = 0; state.notices.push(`Pay n Spray: cat baru, wanted hilang (-$${cost}).`); }
+        if (state.money >= cost) { state.money -= cost; state.wanted.heat = 0; state.wanted.level = 0; state.notices.push(`Pay n Spray: new paint, wanted cleared (-$${cost}).`); }
       }
     }
     // Penthouse buy.
     if (dist2(p.x, p.z, city.penthouse.x, city.penthouse.z) < 36 && !state.penthouseOwned && state.money >= ECONOMY.penthousePrice) {
-      state.money -= ECONOMY.penthousePrice; state.penthouseOwned = true; state.notices.push('Penthouse Palm Heights dibeli! Income $500/hari game.');
+      state.money -= ECONOMY.penthousePrice; state.penthouseOwned = true; state.notices.push('Penthouse Palm Heights bought! Income $500/day in-game.');
     }
     // Safehouse sleep/save.
     if (dist2(p.x, p.z, city.safehouse.x, city.safehouse.z) < 36) {
-      state.wanted.heat = 0; state.wanted.level = 0; state.hour = 8; state.notices.push('Tidur di safehouse. Wanted hilang, jam 08:00.');
+      state.wanted.heat = 0; state.wanted.level = 0; state.hour = 8; state.notices.push('Slept at the safehouse. Wanted cleared, time 08:00.');
     }
   }
   function tryEnterVehicle() {
@@ -208,7 +247,7 @@ export function createWorld(seed) {
       state.money = Math.max(0, state.money - fee);
       for (const k of Object.keys(state.weapons.owned)) if (state.weapons.owned[k]) state.weapons.owned[k].reserve = Math.floor(state.weapons.owned[k].reserve / 2);
       p.x = -260; p.z = 190; p.health = PLAYER.health; p.dead = false; p.onFoot = true; p.vehicleId = -1;
-      state.notices.push(`WASTED. Rumah sakit menagih $${fee}.`);
+      state.notices.push(`WASTED. The hospital charged $${fee}.`);
     }
   }
   return { state, city, rng, step, addHeat, witnessesNear, spawnParticle, collideBuildings, addRespect, damagePlayer, tryEnterVehicle };

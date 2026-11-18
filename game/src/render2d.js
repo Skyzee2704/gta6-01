@@ -1,7 +1,8 @@
-// Minimal 2D fallback renderer (Tier B, R-28): top-down Canvas view of the
-// same sim state — roads as lines, buildings as boxes, cars and people as
-// dots and arrows. Press V in the 3D game to switch to the top-down camera;
-// this module draws the pure 2D canvas version used when WebGL is absent.
+// Minimal 2D fallback renderer (Tier B, R-28): a top-down Canvas view of
+// the same sim state, used when WebGL is absent — roads as lines, buildings
+// as boxes, cars and people as dots and arrows. Press V in the 3D game to
+// switch to the top-down camera; this module draws the pure 2D canvas
+// version used when WebGL is absent.
 export function drawTopDown(ctx, state, city, w, h) {
   const sx = w / 660, sz = h / 500;
   const X = x => (x + 330) * sx, Z = z => (z + 250) * sz;
@@ -20,5 +21,5 @@ export function drawTopDown(ctx, state, city, w, h) {
   ctx.fillStyle = '#ffc94d'; ctx.beginPath(); ctx.arc(X(p.x), Z(p.z), 7, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#ffc94d'; ctx.beginPath(); ctx.moveTo(X(p.x), Z(p.z)); ctx.lineTo(X(p.x) + Math.sin(p.heading) * 16, Z(p.z) + Math.cos(p.heading) * 16); ctx.stroke();
   ctx.fillStyle = '#fff'; ctx.font = '14px system-ui, sans-serif';
-  ctx.fillText('SOLMAR 2D — top-down fallback (V untuk kembali ke 3D)', 12, 20);
+  ctx.fillText('SOLMAR 2D — top-down fallback (V to return to 3D)', 12, 20);
 }

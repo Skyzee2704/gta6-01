@@ -9,7 +9,8 @@ export function createCameraRig() {
 }
 export function updateCameraRig(rig, state, dt, input) {
   const p = state.player;
-  rig.yaw += (input.mouseDX || 0) * 0.003;
+  // Mouse yaw: turning right DECREASES yaw (was +=, mirrored).
+  rig.yaw -= (input.mouseDX || 0) * 0.003;
   rig.pitch = clamp(rig.pitch + (input.mouseDY || 0) * 0.002, 0.05, 1.1);
   if (input.wheel) rig.dist = clamp(rig.dist + input.wheel * 0.5, 6, 18);
   const speed = p.speed || 0;
@@ -34,11 +35,15 @@ export function cameraPosition(rig, state, city) {
   let cx = p.x - Math.sin(yaw) * dist;
   let cz = p.z - Math.cos(yaw) * dist;
   let cy = p.y + height;
-  // keepClear: shorten the boom if a building blocks the view.
-  for (let t = 1; t > 0.2; t -= 0.1) {
+  // keepClear: shorten the boom until the camera is OUT of any building
+  // (first clear t), falling back to t = 0.2 if the whole boom is blocked.
+  // (Was: break on the FIRST building found, leaving the camera inside it.)
+  let t = 1;
+  for (t = 1; t > 0.2; t -= 0.1) {
     const tx = p.x - Math.sin(yaw) * dist * t, tz = p.z - Math.cos(yaw) * dist * t;
-    if (buildingAt(city, tx, tz)) { cx = p.x - Math.sin(yaw) * dist * (t - 0.1); cz = p.z - Math.cos(yaw) * dist * (t - 0.1); break; }
+    if (!buildingAt(city, tx, tz)) break;
   }
+  cx = p.x - Math.sin(yaw) * dist * t; cz = p.z - Math.cos(yaw) * dist * t;
   const shake = rig.shake;
   if (shake > 0) { cx += (Math.random() - 0.5) * shake; cy += (Math.random() - 0.5) * shake; }
   const aimOff = p.aiming ? 1.2 : 0;

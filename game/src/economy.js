@@ -8,7 +8,7 @@ export function addRespect(state, n) {
   const before = state.respectLevel;
   state.respect += n;
   state.respectLevel = respectLevel(state.respect);
-  if (state.respectLevel > before) state.notices.push(`Respect naik ke level ${state.respectLevel}! Unlock baru terbuka.`);
+  if (state.respectLevel > before) state.notices.push(`Respect rose to level ${state.respectLevel}! New unlocks open.`);
   return state.respectLevel;
 }
 export function hospitalBill(state) {
@@ -27,7 +27,7 @@ export function buyMeal(state) {
   if (state.money < ECONOMY.mealPrice) return false;
   state.money -= ECONOMY.mealPrice;
   state.player.health = 100;
-  state.notices.push('Makan di Rosas Diner. Health penuh.');
+  state.notices.push('Ate at Rosas Diner. Health full.');
   return true;
 }
 export function buyPenthouse(state) {

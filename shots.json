@@ -1,1 +1,22 @@
-[{"name":"1-cover.jpg","query":"?shot=cover&seed=1"},{"name":"2-title.jpg","query":"?shot=title&seed=1"},{"name":"3-onfoot.jpg","query":"?shot=onfoot&seed=1"},{"name":"4-map.jpg","query":"?shot=map&seed=1"}]
+[
+ {
+  "name": "1-cover.jpg",
+  "query": "?shot=cover&seed=1",
+  "luma_floor": 0.35
+ },
+ {
+  "name": "2-title.jpg",
+  "query": "?shot=title&seed=1",
+  "luma_floor": 0.35
+ },
+ {
+  "name": "3-onfoot.jpg",
+  "query": "?shot=onfoot&seed=1",
+  "luma_floor": 0.25
+ },
+ {
+  "name": "4-map.jpg",
+  "query": "?shot=map&seed=1",
+  "luma_floor": 0.35
+ }
+]

@@ -1,6 +1,7 @@
 #!/bin/bash
 # check3d: serve game/ locally, render the cover + title scenes in headless
-# Chromium (SwiftShader), and fail on a missing image, an Uncaught error,
+# Chromium (SwiftShader) — needs a Chromium binary on PATH — and fail on
+# a missing image, an Uncaught error,
 # 3D RENDERER FAILED, or a failed view switch. Prints draw stats from the page.
 set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

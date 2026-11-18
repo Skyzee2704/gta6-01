@@ -21,12 +21,14 @@ for spec in "1-cover.jpg:cover" "2-title.jpg:title" "3-onfoot.jpg:onfoot" "4-map
   if [ ! -s "/tmp/shots/$name.png" ]; then echo "shots: FAIL no image for $shot"; fail=1; continue; fi
   if grep -q "Uncaught" "/tmp/shots/chrome-$shot.log"; then echo "shots: FAIL Uncaught in $shot"; grep "Uncaught" "/tmp/shots/chrome-$shot.log" | head -3; fail=1; fi
   if grep -q "3D RENDERER FAILED" "/tmp/shots/chrome-$shot.log"; then echo "shots: FAIL renderer failed in $shot"; fail=1; fi
-  # Quality loop: q=3 up until <= 262144 bytes or q >= 31.
+  # Quality loop: q=3 up until the file fits the per-screenshot cap
+  # (262144 bytes, the dossier limit) or q hits 31.
+  MAX_BYTES=262144
   q=3
   while true; do
     ffmpeg -y -v error -i "/tmp/shots/$name.png" -q:v "$q" "$REPO/screenshots/$name"
     size=$(stat -c%s "$REPO/screenshots/$name")
-    if [ "$size" -le 262144 ] || [ "$q" -ge 31 ]; then break; fi
+    if [ "$size" -le "$MAX_BYTES" ] || [ "$q" -ge 31 ]; then break; fi
     q=$((q + 2))
   done
   echo "shots: $name q=$q size=$size bytes"

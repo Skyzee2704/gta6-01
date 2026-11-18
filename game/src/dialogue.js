@@ -9,8 +9,11 @@ export function currentDialogue(state) {
 export function skipDialogue(state) {
   if (state.dialogue.length) state.dialogue.shift();
 }
+// Display time: a 1.8 s base + 0.045 s per character (average reading
+// speed), capped at 6.5 s so a long line never blocks the next one.
+const DIALOGUE_BASE = 1.8, DIALOGUE_PER_CHAR = 0.045, DIALOGUE_MAX = 6.5;
 export function dialogueDuration(text) {
-  return Math.min(6.5, 1.8 + text.length * 0.045);
+  return Math.min(DIALOGUE_MAX, DIALOGUE_BASE + text.length * DIALOGUE_PER_CHAR);
 }
 export function updateDialogue(state, dt) {
   for (const d of state.dialogue) d.t += dt;

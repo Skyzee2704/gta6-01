@@ -13,7 +13,10 @@ startMission(state, 6);
 state.wanted.heat = 4.2; state.wanted.level = 4; state.wanted.spotted = true;
 const times = [];
 let maxVerts = 0, maxFx = 0, nanFound = false;
-for (let f = 0; f < 2400; f++) {
+// 2400 frames (40 s sim) at a night police chase; mean frame work must
+// stay under 8 ms or the game cannot hold 60 fps on a weak machine.
+const FRAMES = 2400, BUDGET_MS = 8;
+for (let f = 0; f < FRAMES; f++) {
   const t0 = process.hrtime.bigint();
   const inp = emptyInput();
   inp.forward = true; inp.left = Math.sin(f * 0.02) > 0.3; inp.right = Math.sin(f * 0.02) < -0.3;
@@ -36,5 +39,5 @@ const p99 = times[Math.floor(times.length * 0.99)];
 const max = times[times.length - 1];
 console.log(`perf3d: mean ${mean.toFixed(3)}ms p99 ${p99.toFixed(3)}ms max ${max.toFixed(3)}ms budget 8ms`);
 console.log(`maxVerts ${maxVerts} maxFxParticles ${maxFx} vehicles ${state.vehicles.length} peds ${state.peds.length} cops ${state.cops.length} nan=${nanFound}`);
-if (nanFound || mean > 8) { console.error('perf3d: FAIL'); process.exit(1); }
+if (nanFound || mean > BUDGET_MS) { console.error('perf3d: FAIL'); process.exit(1); }
 console.log('perf3d: PASS');

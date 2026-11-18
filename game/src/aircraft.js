@@ -4,6 +4,10 @@
 import { clamp } from './random.js';
 import { buildingAt } from './city.js';
 
+// Flight ceiling in world units: above the tallest tower (~62) so the heli
+// can clear every rooftop, low enough that the city stays readable below.
+const CEILING = 120;
+
 export function updateAircraft(state, city, dt, input, rng) {
   const p = state.player;
   for (const h of state.helis) {
@@ -20,7 +24,7 @@ export function updateAircraft(state, city, dt, input, rng) {
     h.heading += yaw * 1.6 * dt;
     h.x += Math.sin(h.heading) * h.speed * dt;
     h.z += Math.cos(h.heading) * h.speed * dt;
-    h.y = clamp(h.y + h.vy * dt, 0, 120);
+    h.y = clamp(h.y + h.vy * dt, 0, CEILING);
     const b = buildingAt(city, h.x, h.z);
     if (b && h.y < b.h && !h.roof) {
       h.y = Math.max(h.y, 0); h.vy = 0; h.speed *= 0.5;
