@@ -1,23 +1,120 @@
-import { enterVehicle } from './vehicles.js';
-import { RACE_ROUTES } from './data.js';
-import { registerSystem, addNotice, addMoney, addRespect, pushEvent } from './world.js';
-const route=(w,id)=>w.city?.raceRoutes.find(r=>r.id===id);
-export function nearRaceStart(w){if(w.player.onFoot||w.flags.interior)return null;return w.city?.raceRoutes.find(r=>{const p=r.start||r.checkpoints[0];return p&&Math.hypot(w.player.x-p.x,w.player.z-p.z)<=10;})?.id||null;}
-export function startRace(w,id){const r=route(w,id);if(!r?.checkpoints.length||w.flags.race)return false;w.flags.race={routeId:id,checkpoint:0,time:0,best:w.save?.races?.[id],awayT:0};w.flags.raceMarkers=r.checkpoints.map(p=>({...p}));addNotice(w,`Race: ${r.name}. Clear ${r.checkpoints.length} checkpoints!`);return true;}
-export function stepMinigames(w,input,dt){
-  // The car system consumes E first. Preserve an established driver's race interaction.
-  const previous=w.flags.raceDriverId;
-  w.flags.raceDriverId=w.player.onFoot?null:w.player.vehicleId;
-  if(!w.flags.race&&input.pressed?.enter&&w.player.onFoot&&previous){
-    const car=w.vehicles.find(v=>v.id===previous&&!v.driver);
-    const start=w.city?.raceRoutes.some(r=>{const p=r.start||r.checkpoints[0];return Math.hypot(w.player.x-p.x,w.player.z-p.z)<=10;});
-    if(car&&start&&Math.hypot(car.x-w.player.x,car.z-w.player.z)<6){enterVehicle(w,car);w.flags.raceDriverId=car.id;}
-  }
-  let race=w.flags.race;if(!race){if(input.pressed?.enter){const id=nearRaceStart(w);if(id)startRace(w,id);}return;}
-  const r=route(w,race.routeId);if(!r){w.flags.race=null;w.flags.raceMarkers=[];return;}race.time+=dt;
-  const p=w.player,cp=r.checkpoints[race.checkpoint];if(cp&&Math.hypot(p.x-cp.x,p.z-cp.z)<8){race.checkpoint++;addNotice(w,`Checkpoint ${race.checkpoint} of ${r.checkpoints.length}`);}
-  if(race.checkpoint>=r.checkpoints.length){const reward=r.reward??RACE_ROUTES.find(v=>v.id===r.id)?.reward??300;addMoney(w,reward);addRespect(w,150);addNotice(w,`${r.name} finished in ${race.time.toFixed(1)} seconds! +$${reward} + 150 respect.`);
-    w.save ||= {};w.save.races ||= {};const best=w.save.races[r.id];if(!Number.isFinite(best)||race.time<best){w.save.races[r.id]=race.time;addMoney(w,200);addNotice(w,'New best time! +$200 bonus.');}pushEvent(w,'race-complete',{routeId:r.id,time:race.time});w.flags.race=null;w.flags.raceMarkers=[];return;}
-  const away=p.onFoot&&r.checkpoints.every(c=>Math.hypot(p.x-c.x,p.z-c.z)>60);race.awayT=away?race.awayT+dt:0;if(race.awayT>=10){w.flags.race=null;w.flags.raceMarkers=[];addNotice(w,'Race cancelled.');}
+// SOLMAR 3D — minigames: street-race time trial, taxi rush, postcard
+// hunt timer, and the shooting range. Small self-contained loops with
+// scores that feed respect + cash.
+import { createRng } from './random.js';
+
+export const MINIGAMES = [
+  { id: 'time-trial', name: 'Neon Mile Time Trial', desc: 'One lap, best time wins respect.', reward: 800 },
+  { id: 'taxi-rush', name: 'Taxi Rush', desc: 'Five fares before the meter runs out.', reward: 1200 },
+  { id: 'shooting-range', name: 'Shooting Range', desc: 'Twenty targets, sixty seconds.', reward: 600 },
+  { id: 'postcard-hunt', name: 'Postcard Hunt', desc: 'Find five postcards in the time limit.', reward: 500 },
+];
+
+export function createMinigameState(seed = 1) {
+  return {
+    rng: createRng(seed * 71 + 6),
+    active: null,
+    score: 0,
+    timer: 0,
+    best: {},
+    targets: [],
+    hits: 0,
+    fares: 0,
+    found: 0,
+  };
 }
-registerSystem('minigames',stepMinigames);
+
+export function startMinigame(state, id) {
+  const def = MINIGAMES.find((m) => m.id === id);
+  if (!def) return { ok: false, reason: 'unknown-minigame' };
+  state.active = def;
+  state.score = 0;
+  state.hits = 0;
+  state.fares = 0;
+  state.found = 0;
+  state.timer = id === 'shooting-range' ? 60 : id === 'taxi-rush' ? 180 : id === 'postcard-hunt' ? 240 : 0;
+  if (id === 'shooting-range') {
+    state.targets = [];
+    for (let i = 0; i < 20; i++) {
+      state.targets.push({
+        id: i,
+        x: state.rng.range(-8, 8),
+        y: state.rng.range(1, 3),
+        z: state.rng.range(-14, -6),
+        hit: false,
+        popT: state.rng.range(0, 8),
+      });
+    }
+  }
+  return { ok: true, game: def, timer: state.timer };
+}
+
+export function updateMinigame(state, dt, input) {
+  if (!state.active) return state;
+  if (state.timer > 0) {
+    state.timer -= dt;
+    if (state.timer <= 0) {
+      return endMinigame(state);
+    }
+  }
+  if (state.active.id === 'shooting-range') {
+    for (const t of state.targets) {
+      t.popT -= dt;
+      if (t.popT <= 0 && !t.hit) {
+        t.popT = state.rng.range(2, 6);
+        t.x = state.rng.range(-8, 8);
+      }
+    }
+  }
+  return state;
+}
+
+export function registerHit(state, targetId) {
+  if (!state.active || state.active.id !== 'shooting-range') return null;
+  const t = state.targets.find((x) => x.id === targetId);
+  if (!t || t.hit) return null;
+  t.hit = true;
+  state.hits += 1;
+  state.score += 100;
+  if (state.hits >= 20) return endMinigame(state);
+  return { hits: state.hits, score: state.score };
+}
+
+export function registerFare(state) {
+  if (!state.active || state.active.id !== 'taxi-rush') return null;
+  state.fares += 1;
+  state.score += 240;
+  if (state.fares >= 5) return endMinigame(state);
+  return { fares: state.fares, score: state.score };
+}
+
+export function registerPostcard(state) {
+  if (!state.active || state.active.id !== 'postcard-hunt') return null;
+  state.found += 1;
+  state.score += 100;
+  if (state.found >= 5) return endMinigame(state);
+  return { found: state.found, score: state.score };
+}
+
+export function endMinigame(state) {
+  const def = state.active;
+  if (!def) return null;
+  const score = state.score;
+  const best = state.best[def.id] || 0;
+  const isBest = score > best;
+  if (isBest) state.best[def.id] = score;
+  const result = {
+    id: def.id,
+    name: def.name,
+    score,
+    best: state.best[def.id],
+    isBest,
+    reward: Math.round(def.reward * (score > 0 ? 1 : 0.25)),
+    hits: state.hits,
+    fares: state.fares,
+    found: state.found,
+  };
+  state.active = null;
+  state.timer = 0;
+  return result;
+}

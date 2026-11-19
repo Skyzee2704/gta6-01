@@ -1,69 +1,60 @@
-import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+// SOLMAR 3D — Streets of Gold, gta6-01 entry (Node 22, standard library
+// only). The game is this directory's game/ folder: plain static files a
+// desktop browser loads offline (game/index.html and its ES modules, the
+// vendored three.js UMD build, no network request). The program hands it
+// in: it copies game/ and screenshots/ from beside this file to /output
+// and writes /output/dossier.json, the summary the judge reads, with the
+// vendored make.fun library. SOLMAR 3D is a golden-hour open-world crime
+// game: drive, steal, race, fight the Vultures, outrun the PCPD, and take
+// the crown of Solmar across 6 story jobs.
+//
+// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-// Text: 160 KiB; screenshots: four, each at most 256 KiB.
-const TEXT_MAX_BYTES = 163840;
-const SCREENSHOTS_MAX = 4;
-const SCREENSHOT_MAX_BYTES = 262144;
-// Game: 993 entries, 48 MiB total, paths at most 1000 UTF-8 bytes.
-const GAME_MAX_FILES = 993;
-const GAME_MAX_BYTES = 50331648;
-const GAME_PATH_MAX_BYTES = 1000;
-const root = fileURLToPath(new URL('.', import.meta.url));
-const output = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function refuse(reason: string): never {
-  console.error(`refusing to hand in: ${reason}`);
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+
+// Fail loud when the entry has no screenshots: a submission without the
+// four staged shots is not submittable, and a silent empty folder would
+// only be caught by the judge.
+const shotDir = join(out, 'screenshots');
+const shots = existsSync(shotDir) ? readdirSync(shotDir).filter((f) => /\.(jpg|jpeg|png)$/i.test(f)) : [];
+if (shots.length !== 4) {
+  console.error(`expected exactly 4 screenshots, found ${shots.length}: ${shots.join(', ')}`);
   process.exit(1);
 }
-
-function gate() {
-  const required = [
-    'index.html', 'src/main.js', 'src/render.js', 'src/city.js',
-    'src/buildings.js', 'src/materials.js', 'src/props.js',
-  ];
-  for (const name of required) {
-    const path = join(root, 'game', name);
-    if (!existsSync(path) || !statSync(path).isFile()) {
-      refuse(`game/${name} is missing or is not a regular file`);
-    }
-  }
-  const directory = join(root, 'screenshots');
-  if (!existsSync(directory) || !statSync(directory).isDirectory()) {
-    refuse('screenshots/ is missing or is not a directory');
-  }
-  const names = readdirSync(directory).sort();
-  if (names.length < 3 || names.length > SCREENSHOTS_MAX) {
-    refuse(`screenshots/ must contain 3 to 4 images; found ${names.length}`);
-  }
-  if (!names[0].startsWith('1-')) refuse('first screenshot name must start with 1-');
-  for (const name of names) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/.test(name) || !/\.(png|jpe?g)$/i.test(name)) {
-      refuse(`screenshots/${name} must have a valid PNG or JPEG filename`);
-    }
-    const info = statSync(join(directory, name));
-    if (!info.isFile()) refuse(`screenshots/${name} is not an image file`);
-    if (info.size > SCREENSHOT_MAX_BYTES) {
-      refuse(`screenshots/${name} exceeds ${SCREENSHOT_MAX_BYTES} bytes`);
-    }
+for (const f of shots) {
+  const size = statSync(join(shotDir, f)).size;
+  if (size > 262144) {
+    console.error(`screenshot ${f} is ${size} bytes, over the 262144 cap`);
+    process.exit(1);
   }
 }
 
-try {
-  gate();
-} catch (error) {
-  refuse(error instanceof Error ? error.message : String(error));
-}
-mkdirSync(output, { recursive: true });
-cpSync(join(root, 'game'), join(output, 'game'), { recursive: true });
-mkdirSync(join(output, 'screenshots'), { recursive: true });
-cpSync(join(root, 'screenshots'), join(output, 'screenshots'), { recursive: true });
-writeFileSync(join(output, 'dossier.json'), buildDossier(output, {
-  text_max_bytes: TEXT_MAX_BYTES,
-  screenshots: { max: SCREENSHOTS_MAX, max_bytes: SCREENSHOT_MAX_BYTES },
-  game_max_files: GAME_MAX_FILES,
-  game_max_bytes: GAME_MAX_BYTES,
-  game_path_max_bytes: GAME_PATH_MAX_BYTES,
-}));
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
+// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
+// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
+// screenshots/ and dossier.json).
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
+
+console.log(`SOLMAR 3D v4 dossier written: ${shots.length} screenshots, game/ + dossier.json in ${out}`);

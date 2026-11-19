@@ -1,47 +1,52 @@
-export const CONFIG = {
-  WORLD_W: 640,
-  WORLD_H: 480,
-  BLOCK_W: 70,
-  BLOCK_H: 60,
-  ROAD_W: 16,
-  SIDEWALK_W: 4,
-  SIDEWALK_H: 0.15,
-  START_HOUR: 12.0,
-  MINUTES_PER_SECOND: 0.6,
-  SUNRISE: 6.0,
-  SUNSET: 19.3,
-  SEED: 1,
-  PLAYER_WALK_SPEED: 6,
-  PLAYER_RUN_SPEED: 9,
-  JUMP_VELOCITY: 7,
-  GRAVITY: 20,
-  CAR_ACCEL: 14,
-  CAR_REVERSE_SPEED: 10,
-  MAX_TRAFFIC: 24,
-  MAX_NPCS: 36,
-  MAX_COPS: 6,
-  MAX_ENEMIES: 8,
-  HEALTH_MAX: 100,
-  ARMOR_MAX: 100,
-  ARMOR_ABSORB: 0.65,
-  SAVE_KEY: 'solmar3d.save.v1',
-  WANTED_ESCAPE_BASE: 5,
-  PAYNSPRAY_BASE: 150,
-  BAIL_COST: 500,
-  HOSPITAL_BASE: 300,
-  CAMERA_BOOM: 9,
-  CAMERA_HEIGHT: 4,
-  FOV_MIN: 58,
-  FOV_MAX: 74,
-  HELI_TOP_SPEED: 40,
-  HELI_CEILING: 120,
-  BOAT_TOP_SPEED: 22,
-  SPEEDBOAT_TOP_SPEED: 28,
-  RAIN_PARTICLES: 1200,
-  POSTCARD_COUNT: 20,
-  POSTCARD_REWARD: 500,
-  POSTCARD_RESPECT: 60,
-  POSTCARD_BONUS: 5000,
-  TAXI_BASE_FARE: 50,
-  TAXI_RESPECT: 20,
+// SOLMAR 3D — shared constants. Single source of truth for world size,
+// clock, budgets, palette and camera defaults. No imports.
+export const WORLD_W = 640;
+export const WORLD_H = 480;
+export const START_HOUR = 18.6;
+export const CLOCK_RATE = 0.6;
+export const DEFAULT_SEED = 1;
+export const SAVE_KEY = 'solmar-3d-save-v4';
+export const STATS_KEY = 'solmar-3d-stats-v4';
+export const MAX_WANTED = 5;
+export const BUDGET = {
+  maxDrawCalls: 100,
+  maxTriangles: 200000,
+  simMs: 8,
+  minFps: 30,
 };
+export const DISTRICTS = [
+  'Solmar Marina',
+  'Neon Mile',
+  'Downtown',
+  'Old Town',
+  'Beachfront',
+  'Hillside',
+];
+export const PALETTE = {
+  gold: 0xd9a441,
+  orange: 0xe07b39,
+  accent: '#d9a441',
+  hudBg: 'rgba(10, 12, 24, 0.72)',
+  hudBorder: 'rgba(217, 164, 65, 0.55)',
+  text: '#f5ead2',
+  muted: '#b8ab8a',
+  danger: '#e5484d',
+  ok: '#46c26a',
+  policeBlue: '#3a86ff',
+  policeRed: '#ff3b30',
+};
+export const CAMERA = {
+  boomMin: 13,
+  boomMax: 16,
+  fovMin: 60,
+  fovMax: 72,
+  swingMax: 0.35,
+  height: 5.2,
+};
+export const SHOT_HOURS = { cover: 18.6, race: 18.8, onfoot: 20.5, map: 12.0 };
+export const LUMA_FLOOR = { cover: 0.35, race: 0.35, onfoot: 0.25, map: 0.35 };
+export const SHOT_MAX_BYTES = 262144;
+export const SHOT_TARGET_MIN_BYTES = 180000;
+export const SHOT_TARGET_MAX_BYTES = 256000;
+export const GAME_VERSION = '4.0.0';
+export const GAME_TITLE = 'SOLMAR 3D — Streets of Gold';

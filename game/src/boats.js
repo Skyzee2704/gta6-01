@@ -1,19 +1,69 @@
-import { registerSystem, pushEvent, spawnParticles } from './world.js';
-let serial=0;
-export function spawnBoat(w,typeId,x,z,heading=0){const boat={id:`boat-${++serial}`,type:typeId==='speedboat'?'speedboat':'boat',kind:'boat',x,z,y:0,heading,speed:0,health:100,driver:null,bob:0,locked:true};(w.boats ||= []).push(boat);w.vehicles.push(boat);return boat;}
-export function stepBoats(w,input,dt){if(!w.city)return;const line=w.city.waterLineZ,p=w.player;
-  if(!w.flags.boatsSpawned){w.flags.boatsSpawned=true;const m=w.city.spawn.marina,pier=w.city.spawn.pier;spawnBoat(w,'speedboat',m.x,line-3,0);spawnBoat(w,'boat',pier.x+7,line-3,0);}
-  for(const b of w.boats||[]){if(b.health<=0)continue;if(!w.vehicles.includes(b))w.vehicles.push(b);
-    const aboard=p.boatId===b.id;
-    if(aboard){p.onFoot=false;p.vehicleId=null;b.driver='player';
-      if(input.pressed?.enter&&b.z<line+20){p.boatId=null;p.onFoot=true;b.driver=null;Object.assign(p,{x:b.x,z:line-3,y:0,speed:0});continue;}
-      b.speed+=(Number(!!input.forward)-Number(!!input.back))*8*dt;b.speed*=Math.exp(-0.25*dt);b.speed=Math.max(-7,Math.min(b.type==='speedboat'?28:22,b.speed));b.heading+=(Number(!!input.right)-Number(!!input.left))*0.6*dt*Math.min(1,Math.abs(b.speed)/3);
-    }else if(p.onFoot&&!p.heliId&&!w.flags.interior&&input.pressed?.enter&&Math.hypot(p.x-b.x,p.z-b.z)<6){w.notices=w.notices.filter(n=>n.text!=='That car is locked.');p.onFoot=false;p.boatId=b.id;p.vehicleId=null;b.driver='player';pushEvent(w,'boat-board',{id:b.id});}
-    b.x+=Math.cos(b.heading)*b.speed*dt;b.z+=Math.sin(b.heading)*b.speed*dt;
-    if(b.z<line-5){b.z=line-5;b.speed=0;}const pier=w.city.spawn.pier;if(Math.hypot(b.x-pier.x,b.z-pier.z)<4)b.speed*=0.5;
-    b.bob=Math.sin(w.elapsed*2+Number(b.id.split('-')[1]))*0.15;b.y=b.bob;
-    b.wakeT=(b.wakeT||0)+dt;if(Math.abs(b.speed)>5&&b.wakeT>0.15){spawnParticles(w,b.x-Math.cos(b.heading)*3,0,b.z-Math.sin(b.heading)*3,'wake',2);b.wakeT=0;}
-    if(p.boatId===b.id)Object.assign(p,{x:b.x,z:b.z,y:b.bob,heading:b.heading,speed:b.speed,onFoot:false});
-  }
+// SOLMAR 3D — boats: drivable speedboat and yacht at the marina.
+// Waterline bob, wake, docking at the marina slips.
+import { clamp } from './random.js';
+import { box } from './materials.js';
+
+export function createBoatState(kind, x, y) {
+  return {
+    kind: kind || 'speedboat',
+    x,
+    y,
+    heading: 0,
+    speed: 0,
+    bob: 0,
+    docked: true,
+    wake: 0,
+  };
 }
-registerSystem('boats',stepBoats);
+
+export function updateBoat(b, input, dt) {
+  const topSpeed = b.kind === 'yacht' ? 12 : 30;
+  const accel = input.up ? 8 : input.down ? -5 : 0;
+  b.speed = clamp(b.speed + accel * dt, 0, topSpeed);
+  const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+  b.heading += steer * 0.8 * dt * (b.speed > 1 ? 1 : 0.2);
+  b.x += Math.sin(b.heading) * b.speed * dt;
+  b.y += Math.cos(b.heading) * b.speed * dt;
+  b.bob += dt * 1.4;
+  b.wake = Math.min(1, b.speed / topSpeed);
+  b.docked = b.speed < 0.5;
+  return b;
+}
+
+export function buildBoatMesh(def, materials) {
+  const g = new THREE.Group();
+  const hull = new THREE.MeshStandardMaterial({ color: def.color || 0xf2f0e8, roughness: 0.4, metalness: 0.3 });
+  const body = box(2.4, 0.9, 5.2, hull);
+  body.position.y = 0.5;
+  g.add(body);
+  const deck = box(2.0, 0.2, 4.4, materials.wood);
+  deck.position.y = 1.0;
+  g.add(deck);
+  const cabin = box(1.6, 0.9, 1.8, materials.glassDark);
+  cabin.position.set(0, 1.5, -0.6);
+  g.add(cabin);
+  const rail = box(2.3, 0.12, 0.12, materials.chrome);
+  rail.position.set(0, 1.15, 2.5);
+  g.add(rail);
+  return g;
+}
+
+export const MARINA_SLIPS = [
+  { x: 90, y: 18, heading: 0 },
+  { x: 120, y: 18, heading: 0 },
+  { x: 150, y: 18, heading: 0 },
+  { x: 180, y: 18, heading: 0 },
+];
+
+export function nearestSlip(x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const s of MARINA_SLIPS) {
+    const d = Math.hypot(s.x - x, s.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return { slip: best, distance: bestD };
+}

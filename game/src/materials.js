@@ -1,121 +1,143 @@
-// Browser resources are created lazily: simulation imports remain safe in Node.
-const THREE = typeof window === 'undefined' ? null : window.THREE;
-function ready() {
-  if (!THREE) throw new Error('THREE is required: load the three.js UMD script before creating materials.');
-  if (typeof document === 'undefined') throw new Error('THREE textures require a browser canvas.');
-}
-export function makeCanvasTexture(w, h, draw) {
-  ready();
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('THREE textures require a working 2D canvas context.');
-  draw(ctx, w, h);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = 4; texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-function surface(base, pattern = 'noise', size = 128) {
-  return makeCanvasTexture(size, size, (c, w, h) => {
-    c.fillStyle = base; c.fillRect(0, 0, w, h);
-    // Fixed integer sequence makes surface grain stable across reloads.
-    let seed = 7183;
-    const rand = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < 1700; i++) {
-      c.fillStyle = i % 2 ? 'rgba(255,255,255,.065)' : 'rgba(0,0,0,.09)';
-      c.fillRect(rand() * w, rand() * h, 1 + rand() * 2, 1);
-    }
-    if (pattern === 'brick') {
-      c.strokeStyle = 'rgba(224,214,193,.65)'; c.lineWidth = 2;
-      for (let y = 0; y <= h; y += 16) {
-        c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
-        for (let x = (y / 16 % 2) * 16; x < w; x += 32) {
-          c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 16); c.stroke();
-        }
-      }
-    }
-    if (pattern === 'wood') {
-      c.strokeStyle = '#493321'; c.lineWidth = 2;
-      for (let y = 0; y < h; y += 24) { c.beginPath(); c.moveTo(0,y); c.lineTo(w,y); c.stroke(); }
-      c.strokeStyle = 'rgba(40,20,8,.22)'; c.lineWidth = 1;
-      for (let y = 4; y < h; y += 5) { c.beginPath(); c.moveTo(0,y); c.bezierCurveTo(40,y-3,80,y+3,w,y); c.stroke(); }
-    }
-  });
-}
-let shared;
+// SOLMAR 3D — shared PBR materials: pastel palette, neon emissive, lit
+// windows, asphalt, glass, metal, tire, chrome. Browser only (uses THREE).
+const PASTELS = [
+  0xe8b4b8, 0xf2d8a0, 0xa8d8c8, 0xb8c8e8, 0xe8c8a0,
+  0xd8b8e8, 0xf8e8c8, 0xa8c8a8, 0xe8a0a0, 0x98c8d8,
+  0xd8d8b8, 0xc8b8d8, 0xf0c8a0, 0x88b8c8, 0xe8d8d8,
+];
+
 export function createMaterials() {
-  ready(); if (shared) return shared;
-  const specs = {
-    asphalt:['#34383b',.9], concrete:['#b8b6ac',.92], brickRed:['#a75c49',.85,'brick'],
-    brickPainted:['#dfcba3',.85,'brick'], glassDark:['#263e4c',.15], glassLit:['#ffe2a0',.35],
-    metal:['#8a9194',.4], wood:['#805c3a',.88,'wood'], sand:['#e2ce9b',1], grass:['#66834b',1],
-    roofTerracotta:['#b95735',.85], roofDark:['#353b40',.9], roadMarking:['#fff3cd',.85],
-    waterMat:['#238ca8',.15], foliageGreen:['#3c733c',1], foliagePalm:['#659044',1],
-    trunkBrown:['#78573c',1,'wood'], neonPink:['#ff499b',.35], neonTeal:['#38ffe2',.35],
-    neonYellow:['#ffe86a',.35], tireBlack:['#202124',1], chrome:['#d2dce0',.16]
+  const mats = {};
+  mats.asphalt = new THREE.MeshStandardMaterial({ color: 0x383c3e, roughness: 0.94, metalness: 0.02 });
+  mats.asphaltDark = new THREE.MeshStandardMaterial({ color: 0x232528, roughness: 0.96, metalness: 0.02 });
+  mats.concrete = new THREE.MeshStandardMaterial({ color: 0x9a938a, roughness: 0.9, metalness: 0.0 });
+  mats.sidewalk = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.92, metalness: 0.0 });
+  mats.glass = new THREE.MeshStandardMaterial({ color: 0x9fd8e8, roughness: 0.12, metalness: 0.4, transparent: true, opacity: 0.55 });
+  mats.glassDark = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, roughness: 0.15, metalness: 0.5, transparent: true, opacity: 0.7 });
+  mats.chrome = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.18, metalness: 0.9 });
+  mats.tire = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.95, metalness: 0.0 });
+  mats.metal = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.4, metalness: 0.8 });
+  mats.wood = new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: 0.85, metalness: 0.0 });
+  mats.leaf = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, metalness: 0.0 });
+  mats.trunk = new THREE.MeshStandardMaterial({ color: 0x6a4a2e, roughness: 0.95, metalness: 0.0 });
+  mats.sand = new THREE.MeshStandardMaterial({ color: 0xe0c890, roughness: 0.98, metalness: 0.0 });
+  mats.roof = new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.9, metalness: 0.05 });
+  mats.windowLit = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb35c, emissiveIntensity: 0.9, roughness: 0.4 });
+  mats.windowDark = new THREE.MeshStandardMaterial({ color: 0x2a3542, roughness: 0.3, metalness: 0.4 });
+  mats.windowNight = new THREE.MeshStandardMaterial({ color: 0xffe9a0, emissive: 0xffc85c, emissiveIntensity: 1.2, roughness: 0.4 });
+  mats.neonPink = new THREE.MeshStandardMaterial({ color: 0xff4da6, emissive: 0xff2e88, emissiveIntensity: 1.6, roughness: 0.3 });
+  mats.neonCyan = new THREE.MeshStandardMaterial({ color: 0x4de8ff, emissive: 0x00c8e8, emissiveIntensity: 1.6, roughness: 0.3 });
+  mats.neonGold = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb35c, emissiveIntensity: 1.6, roughness: 0.3 });
+  mats.neonGreen = new THREE.MeshStandardMaterial({ color: 0x7dff8a, emissive: 0x2ee85c, emissiveIntensity: 1.6, roughness: 0.3 });
+  mats.awningRed = new THREE.MeshStandardMaterial({ color: 0xc22e2e, roughness: 0.8, metalness: 0.0 });
+  mats.awningBlue = new THREE.MeshStandardMaterial({ color: 0x2e6fc2, roughness: 0.8, metalness: 0.0 });
+  mats.white = new THREE.MeshStandardMaterial({ color: 0xf2f0e8, roughness: 0.85, metalness: 0.0 });
+  mats.black = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9, metalness: 0.1 });
+  mats.skinTones = [
+    new THREE.MeshStandardMaterial({ color: 0xe8b890, roughness: 0.75 }),
+    new THREE.MeshStandardMaterial({ color: 0xc89066, roughness: 0.75 }),
+    new THREE.MeshStandardMaterial({ color: 0x8a5a3a, roughness: 0.75 }),
+    new THREE.MeshStandardMaterial({ color: 0xf0c8a0, roughness: 0.75 }),
+  ];
+  mats.shirtColors = [
+    new THREE.MeshStandardMaterial({ color: 0xc22e2e, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: 0x2e6fc2, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: 0xe0a030, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: 0x8e2e6f, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: 0xf2f0e8, roughness: 0.85 }),
+  ];
+  mats.pantsColors = [
+    new THREE.MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: 0x6a5a42, roughness: 0.9 }),
+  ];
+  mats.pastels = PASTELS.map(
+    (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.02 }),
+  );
+  mats.pastelAt = function pastelAt(i) {
+    return mats.pastels[((i % PASTELS.length) + PASTELS.length) % PASTELS.length];
   };
-  shared = {};
-  for (const [name, [base, roughness, pattern]] of Object.entries(specs)) {
-    const options = {color:0xffffff, map:surface(base,pattern), roughness, metalness:0};
-    if (name === 'glassDark') Object.assign(options,{metalness:.9,envMapIntensity:1.2});
-    if (name === 'metal' || name === 'chrome') options.metalness = name === 'metal' ? .8 : 1;
-    if (name.startsWith('neon') || name === 'glassLit') Object.assign(options,{emissive:base,emissiveIntensity:name === 'glassLit' ? .7 : 2});
-    if (name === 'waterMat') Object.assign(options,{transparent:true,opacity:.85,depthWrite:false});
-    if (name.startsWith('foliage')) Object.assign(options,{flatShading:true,side:THREE.DoubleSide});
-    shared[name] = new THREE.MeshStandardMaterial(options);
+  mats.neonAt = function neonAt(i) {
+    const list = [mats.neonPink, mats.neonCyan, mats.neonGold, mats.neonGreen];
+    return list[((i % list.length) + list.length) % list.length];
+  };
+  return mats;
+}
+
+export function box(w, h, d, mat) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
+// Merge many coloured boxes into ONE geometry (one draw call) with
+// per-vertex colours. Static props, trees, car bodies and character
+// torsos all go through here — it is what keeps the frame under the
+// 100-draw-call budget with 200 buildings, 150 trees and live traffic.
+export function mergeBoxes(parts) {
+  const geos = [];
+  for (const p of parts) {
+    const geo = new THREE.BoxGeometry(p.w, p.h, p.d);
+    const m = new THREE.Matrix4();
+    m.makeRotationFromEuler(new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0));
+    m.setPosition(p.x || 0, p.y || 0, p.z || 0);
+    geo.applyMatrix4(m);
+    const color = new THREE.Color(p.color != null ? p.color : 0xffffff);
+    const count = geo.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = color.r;
+      colors[i * 3 + 1] = color.g;
+      colors[i * 3 + 2] = color.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const flat = geo.toNonIndexed();
+    flat.clearGroups();
+    geos.push(flat);
   }
-  return shared;
+  let total = 0;
+  for (const g of geos) total += g.attributes.position.count;
+  const pos = new Float32Array(total * 3);
+  const nor = new Float32Array(total * 3);
+  const col = new Float32Array(total * 3);
+  const uv = new Float32Array(total * 2);
+  let o = 0;
+  for (const g of geos) {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    col.set(g.attributes.color.array, o * 3);
+    uv.set(g.attributes.uv.array, o * 2);
+    o += n;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return out;
 }
-export function facadeMaterial(facadeId, color = '#ffffff') {
-  const mats = createMaterials();
-  const id = String(facadeId).toLowerCase();
-  const key = id.includes('glass') ? 'glassDark' : id.includes('metal') ? 'metal' : id.includes('wood') ? 'wood' : id.includes('paint') ? 'brickPainted' : id.includes('brick') ? 'brickRed' : 'concrete';
-  const mat = mats[key].clone(); mat.color.set(color); return mat;
+
+export function vertexMaterial() {
+  return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05 });
 }
-export function createDetailTexture() { return surface('#929184', 'noise', 256); }
-export function createGroundTexture(city) {
-  ready();
-  const texture = makeCanvasTexture(2048,2048,(c,w,h) => {
-    // Canvas top is north (-Z). PlaneGeometry rotated -PI/2 maps this to world north.
-    const sx=w/640, sz=h/480;
-    c.scale(sx,sz); c.translate(320,240);
-    const rect=(x0,z0,x1,z1,color)=>{c.fillStyle=color;c.fillRect(x0,z0,x1-x0,z1-z0);};
-    rect(-320,-240,320,240,'#83916b');
-    const beach=city.beach || {x0:-320,x1:320,z0:200,z1:240};
-    rect(beach.x0,beach.z0,beach.x1,beach.z1,'#dfcf9e');
-    rect(-320,city.waterLineZ ?? 240,320,240,'#25859d');
-    for(const p of city.parks || []) rect(p.x0,p.z0,p.x1,p.z1,'#4b824c');
-    const stroke=(r,width,color,dash=[])=>{
-      c.strokeStyle=color;c.lineWidth=width;c.setLineDash(dash);c.beginPath();c.moveTo(r.x0,r.z0);c.lineTo(r.x1,r.z1);c.stroke();c.setLineDash([]);
-    };
-    const roads=city.roads || [];
-    for(const r of roads) stroke(r,24,'#b5b5ac');
-    for(const r of roads) stroke(r,16,'#383c3e');
-    for(const r of roads) {
-      stroke(r,.45,'#e2c966',[3,3]);
-      const dx=r.x1-r.x0,dz=r.z1-r.z0,len=Math.hypot(dx,dz)||1;
-      for(const sign of [-1,1]) {
-        const ox=-dz/len*7*sign,oz=dx/len*7*sign;
-        stroke({x0:r.x0+ox,z0:r.z0+oz,x1:r.x1+ox,z1:r.z1+oz},.32,'#e6e5d8');
-      }
-    }
-    // Only crossings of finite road segments receive pedestrian markings.
-    for(const a of roads.filter(r=>r.horizontal)) for(const b of roads.filter(r=>!r.horizontal)) {
-      const x=b.x0,z=a.z0;
-      if(x<Math.min(a.x0,a.x1)||x>Math.max(a.x0,a.x1)||z<Math.min(b.z0,b.z1)||z>Math.max(b.z0,b.z1)) continue;
-      rect(x-8,z-8,x+8,z+8,'#383c3e');
-      for(let i=-6;i<7;i+=2) for(const side of [-1,1]) {
-        rect(x+i,z+side*10-1.5,x+i+1,z+side*10+1.5,'#f0ecdc');
-        rect(x+side*10-1.5,z+i,x+side*10+1.5,z+i+1,'#f0ecdc');
-      }
-    }
-    for(const b of city.buildings || []) {
-      const district=city.districts?.find(d=>d.id===b.district);
-      rect(b.x-b.w/2,b.z-b.d/2,b.x+b.w/2,b.z+b.d/2,b.baseColor || district?.palette?.[0] || '#b5a68e');
-    }
-    for(const l of city.landmarks || []) {c.fillStyle='#f5d378';c.beginPath();c.arc(l.x,l.z,1.5,0,Math.PI*2);c.fill();}
+
+export function neonVertexMaterial() {
+  return new THREE.MeshBasicMaterial({ vertexColors: true });
+}
+
+export function glowSprite(tex, color, scale) {
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    color,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
-  texture.wrapS=texture.wrapT=THREE.ClampToEdgeWrapping;
-  return {texture,canvas:texture.image};
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(scale, scale, 1);
+  return sprite;
 }

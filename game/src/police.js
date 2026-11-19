@@ -1,72 +1,185 @@
-import { CONFIG } from './config.js';
-import { VEHICLE_TYPES } from './data.js';
-import { clamp } from './random.js';
-import { nearestNode } from './city.js';
-import { spawnVehicle, damageVehicle } from './vehicles.js';
-import { registerSystem, clearWanted, addNotice, pushEvent, collideCircle } from './world.js';
-let serial=0;
-const pick=(w,a)=>a[Math.floor(w.rng()*a.length)];
-export function setWantedLevel(w,level){w.wanted=clamp(Math.floor(level),0,5);w.heat=w.wanted;w.escapeTimer=0;
-  w.searchZone=w.wanted?{x:w.player.x,z:w.player.z,radius:240+w.wanted*85}:null;}
-export function spawnCop(w,x,z){const v=spawnVehicle(w,'cruiser',x,z,0,{driver:'cop'});
-  const c={id:`cop-${++serial}`,vehicleId:v.id,state:'patrol',searchT:0,arrestT:0};w.cops.push(c);return c;}
-export function stepPolice(w,input,dt){
-  if(!w.city)return;
-  const p=w.player;
-  w.cops=w.cops.filter(c=>w.vehicles.some(v=>v.id===c.vehicleId&&v.driver==='cop'));
-  w.wanted=clamp(Math.floor(w.heat),0,5);
-  if(w.wanted>0){
-    if(!w.flags.wantedEpisode){w.flags.wantedEpisode=true;w.flags.roadblock=false;w.flags.noCopSightT=0;}
-    if(!w.searchZone)w.searchZone={x:p.x,z:p.z,radius:240+w.wanted*85};
-    w.searchZone.radius=240+w.wanted*85;
-    const safe=w.city.spawn.safehouse;
-    if(safe&&Math.hypot(p.x-safe.x,p.z-safe.z)<12)clearWanted(w,'safehouse');
-  }
-  if(w.wanted>0){
-    const target=Math.min(2+w.wanted,CONFIG.MAX_COPS),points=w.city.graph.filter(n=>{const d=Math.hypot(n.x-p.x,n.z-p.z);return d>=60&&d<=120;});
-    while(w.cops.length<target&&points.length){const n=pick(w,points);spawnCop(w,n.x,n.z);}
-    if(w.wanted>=4&&!w.flags.roadblock&&w.cops.length>=2){
-      const node=nearestNode(w.city,p.x+Math.cos(p.heading)*55,p.z+Math.sin(p.heading)*55);
-      for(let i=0;i<2;i++){const c=w.cops[w.cops.length-1-i],v=w.vehicles.find(v=>v.id===c.vehicleId);c.state='roadblock';
-        v.x=node.x+Math.cos(p.heading)*(i?3:-3);v.z=node.z+Math.sin(p.heading)*(i?3:-3);v.heading=p.heading+Math.PI/2;v.speed=0;v.parked=true;}
-      w.flags.roadblock=true;
-    }
-  }
-  let close=false,inZone=false;
-  const top=VEHICLE_TYPES.find(t=>t.id==='cruiser').topSpeed;
-  for(const c of w.cops){const v=w.vehicles.find(v=>v.id===c.vehicleId);let d=Math.hypot(v.x-p.x,v.z-p.z);
-    if(w.wanted>0){
-      if(d<60)close=true;if(d<(w.searchZone?.radius||240))inZone=true;
-      if(c.state!=='roadblock'){
-        c.state=d<100?'chase':'search';c.searchT+=dt;v.heading=Math.atan2(p.z-v.z,p.x-v.x);
-        v.speed=Math.min(top,Math.max(8,Math.abs(p.speed)+2));
-        // Keep a bumper gap while pursuing cars: overlapping every frame traps
-        // the player's acceleration in the vehicle collision damping loop.
-        const travel=p.onFoot||w.wanted<4?v.speed*dt:Math.min(v.speed*dt,Math.max(0,d-3.2));
-        const q=collideCircle(w,v.x+Math.cos(v.heading)*travel,v.z+Math.sin(v.heading)*travel,1.1);v.x=q.x;v.z=q.z;
-      }
-      d=Math.hypot(v.x-p.x,v.z-p.z);
-      c.arrestT=p.onFoot&&d<3?c.arrestT+dt:0;
-      if(c.arrestT>=1.5&&!p.busted&&!p.dead){p.busted=true;w.money=Math.max(0,w.money-500);p.weapon='pistol';p.ammo={pistol:{mag:12,reserve:0}};if(p.weapons)p.weapons=['pistol'];
-        pushEvent(w,'busted');addNotice(w,'CUFFED. Bail 500 dollars, weapons seized (except the pistol).');clearWanted(w,'busted');c.arrestT=0;}
-      c.ramT=Math.max(0,(c.ramT||0)-dt);
-      if(!p.onFoot&&d<3&&c.ramT===0){const car=w.vehicles.find(v=>v.id===p.vehicleId);if(car)damageVehicle(w,car,3,'police-ram');c.ramT=1;}
-    }else{
-      c.state='patrol';c.arrestT=0;v.parked=false;
-      if(c.patrolNode===undefined)c.patrolNode=nearestNode(w.city,v.x,v.z).id;
-      const node=w.city.graph[c.patrolNode],distance=Math.hypot(node.x-v.x,node.z-v.z);
-      if(distance<1)c.patrolNode=pick(w,node.edges);
-      const goal=w.city.graph[c.patrolNode];v.heading=Math.atan2(goal.z-v.z,goal.x-v.x);v.speed=5;
-      const q=collideCircle(w,v.x+Math.cos(v.heading)*5*dt,v.z+Math.sin(v.heading)*5*dt,1.1);v.x=q.x;v.z=q.z;
-    }
-  }
-  if(w.wanted>=3){const angle=w.elapsed*0.5;w.flags.heli={x:p.x+Math.cos(angle)*25,z:p.z+Math.sin(angle)*25,y:60,active:true};
-    w.flags.heliSpotT=(w.flags.heliSpotT||0)+dt;if(w.flags.heliSpotT>=2){pushEvent(w,'heli-spotlight',{x:p.x,z:p.z});w.flags.heliSpotT=0;}}
-  else if(w.flags.heli)w.flags.heli.active=false;
-  if(w.wanted>0){
-    w.escapeTimer=inZone?0:w.escapeTimer+dt;
-    if(w.escapeTimer>5+w.wanted*1.5){clearWanted(w,'escaped');w.stats.escapes++;addNotice(w,'Wanted level cleared. You got away.');}
-    else {w.flags.noCopSightT=close?0:(w.flags.noCopSightT||0)+dt;if(w.flags.noCopSightT>10){w.heat=Math.max(0,w.heat-0.1*dt);w.wanted=Math.min(5,Math.floor(w.heat));if(w.wanted===0)clearWanted(w,'cooled');}}
-  }else{w.heat=Math.max(0,w.heat-0.02*dt);w.flags.wantedEpisode=false;w.flags.roadblock=false;w.flags.noCopSightT=0;}
+// SOLMAR 3D — police: pursuit, ramming, roadblock, spotlight heli,
+// searching, on-foot cops. FAR spawn via the road graph (never a 60-unit
+// teleport pop-in). Response list data for the HUD. Cops shoot at wanted
+// >= 2, never during missions. Cruiser parked when its cop is on foot.
+import { createRng } from './random.js';
+import { nearestNode, findPath } from './city.js';
+
+export const POLICE_STATES = ['PURSUIT', 'RAMMING', 'ROADBLOCK', 'SPOTLIGHT', 'SEARCHING', 'ON FOOT'];
+
+export function createPolice(seed = 1) {
+  return {
+    rng: createRng(seed * 53 + 7),
+    units: [],
+    heli: null,
+    nextId: 12,
+    spawnTimer: 0,
+    searchZone: null,
+    heat: 0,
+  };
 }
-registerSystem('police',stepPolice);
+
+export function wantedForHeat(heat) {
+  if (heat <= 0) return 0;
+  if (heat < 25) return 1;
+  if (heat < 55) return 2;
+  if (heat < 85) return 3;
+  if (heat < 130) return 4;
+  return 5;
+}
+
+export function spawnUnit(police, city, player, kind) {
+  const rng = police.rng;
+  let farNode = city.nodes[rng.int(0, city.nodes.length - 1)];
+  let farD = -1;
+  for (let i = 0; i < 8; i++) {
+    const cand = city.nodes[rng.int(0, city.nodes.length - 1)];
+    const d = Math.hypot(cand.x - player.x, cand.y - player.y);
+    if (d > farD) {
+      farD = d;
+      farNode = cand;
+    }
+  }
+  const unit = {
+    id: 'PCPD-' + police.nextId++,
+    kind: kind || 'cruiser',
+    x: farNode.x,
+    y: farNode.y,
+    heading: 0,
+    speed: 0,
+    state: 'PURSUIT',
+    node: farNode.id,
+    path: null,
+    pathIdx: 0,
+    siren: true,
+    lightBar: true,
+    onFoot: false,
+    shootT: 0,
+  };
+  police.units.push(unit);
+  return unit;
+}
+
+export function spawnHeli(police, player) {
+  const heli = {
+    id: 'PCPD-AIR1',
+    kind: 'heli',
+    x: player.x + 40,
+    y: player.y - 40,
+    z: 55,
+    heading: 0,
+    speed: 18,
+    state: 'SPOTLIGHT',
+    beamOn: true,
+    beamTarget: { x: player.x, y: player.y },
+    rotor: 0,
+  };
+  police.heli = heli;
+  return heli;
+}
+
+export function updatePolice(police, city, player, world, dt) {
+  const wanted = world.wanted;
+  const want = wanted === 0 ? 0 : wanted === 1 ? 1 : wanted === 2 ? 2 : wanted === 3 ? 3 : wanted === 4 ? 4 : 5;
+  police.spawnTimer -= dt;
+  if (police.units.length < want && police.spawnTimer <= 0) {
+    police.spawnTimer = 2.5;
+    spawnUnit(police, city, player, 'cruiser');
+  }
+  if (wanted >= 3 && !police.heli) {
+    spawnHeli(police, player);
+  }
+  if (wanted < 3) police.heli = null;
+  for (const u of police.units) {
+    const dx = player.x - u.x;
+    const dy = player.y - u.y;
+    const dist = Math.hypot(dx, dy);
+    if (u.state === 'ROADBLOCK') {
+      u.speed = 0;
+      continue;
+    }
+    if (!u.path || u.pathIdx >= u.path.length) {
+      const from = nearestNode(city, u.x, u.y);
+      const dest = nearestNode(city, player.x, player.y);
+      u.path = findPath(city, from.id, dest.id) || [from.id, dest.id];
+      u.pathIdx = 0;
+    }
+    const nextNode = city.nodes[u.path[u.pathIdx]];
+    if (nextNode) {
+      const ndx = nextNode.x - u.x;
+      const ndy = nextNode.y - u.y;
+      const nd = Math.hypot(ndx, ndy);
+      const wantHeading = Math.atan2(ndx, ndy);
+      let dh = wantHeading - u.heading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      u.heading += Math.max(-2.2 * dt, Math.min(2.2 * dt, dh));
+      if (nd < 5) u.pathIdx++;
+    }
+    const topSpeed = u.state === 'RAMMING' ? 26 : 22;
+    u.speed += (topSpeed - u.speed) * Math.min(1, dt * 0.9);
+    u.x += Math.sin(u.heading) * u.speed * dt;
+    u.y += Math.cos(u.heading) * u.speed * dt;
+    if (dist < 12 && u.state === 'PURSUIT') {
+      u.state = 'RAMMING';
+    } else if (dist > 30 && u.state === 'RAMMING') {
+      u.state = 'PURSUIT';
+    }
+    if (wanted >= 4 && dist > 60 && police.rng.chance(dt * 0.05)) {
+      u.state = 'ROADBLOCK';
+    }
+    if (wanted >= 2 && !world.missionActive) {
+      u.shootT -= dt;
+      if (u.shootT <= 0 && dist < 40) {
+        u.shootT = 1.1;
+        u.lastShot = { hit: police.rng.chance(0.12), damage: 6 };
+      }
+    }
+  }
+  if (police.heli) {
+    const h = police.heli;
+    h.rotor += dt * 30;
+    const dx = player.x - h.x;
+    const dy = player.y - h.y;
+    const d = Math.hypot(dx, dy);
+    h.heading = Math.atan2(dx, dy);
+    if (d > 12) {
+      h.x += Math.sin(h.heading) * h.speed * dt;
+      h.y += Math.cos(h.heading) * h.speed * dt;
+    }
+    h.beamTarget = { x: player.x, y: player.y };
+    h.state = 'SPOTLIGHT';
+  }
+  if (wanted === 0) {
+    police.units = [];
+    police.heli = null;
+    police.searchZone = null;
+  } else if (world.heat < 10) {
+    police.searchZone = { x: player.x, y: player.y, r: 45 };
+    for (const u of police.units) u.state = 'SEARCHING';
+  } else {
+    police.searchZone = null;
+  }
+  return police;
+}
+
+export function responseList(police, player) {
+  const list = [];
+  for (const u of police.units) {
+    const dist = Math.round(Math.hypot(player.x - u.x, player.y - u.y));
+    list.push({ callSign: u.id, distance: dist, state: u.state, kind: u.kind });
+  }
+  if (police.heli) {
+    const h = police.heli;
+    const dist = Math.round(Math.hypot(player.x - h.x, player.y - h.y));
+    list.push({ callSign: h.id, distance: dist, state: h.state, kind: 'heli' });
+  }
+  return list.slice(0, 5);
+}
+
+export function roadblockAt(police, city, player) {
+  const blockers = police.units.filter((u) => u.state === 'ROADBLOCK');
+  if (blockers.length === 0) return null;
+  const u = blockers[0];
+  return { x: u.x, y: u.y, heading: u.heading, unit: u.id };
+}

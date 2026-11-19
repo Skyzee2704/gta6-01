@@ -1,143 +1,248 @@
-import { CONFIG } from './config.js';
-import { mulberry32, randomPick, randomInt, clamp } from './random.js';
-import { DISTRICTS, STREET_NAMES, RACE_ROUTES, STREET_FURNITURE, LAMP_TYPES } from './data.js';
-import { generateBuildingsForBlock } from './buildings.js';
+// SOLMAR 3D — city data: road graph, districts, named streets, building
+// footprints (~200), trees (~150), landmarks. Pure deterministic data, no
+// THREE, no DOM — importable from Node for cityCheck.
+//
+// 2026-11-19 (rebuild #3, Sky: "gedung nutupin jalan"): building
+// placement is footprint-aware — ROAD_SETBACK 12 keeps every footprint
+// edge off the road surface (+/-7) and sidewalk (+/-9.5). The old code
+// tested only the CENTRE point, so an 18-wide building could jut 2
+// units into the asphalt. Overlap test is AABB now (was a 26-unit
+// centre distance), attempts 4000 -> 20000, sea check footprint-aware
+// too. Verified: cityCheck PASS, 0 footprint-on-road, seeds 1-3.
+// Rewritten under recording 01a1f2f3 (recorder 01a1f27c died 16:33 WITA).
+import { createRng } from './random.js';
+import { DISTRICTS } from './data.js';
+import { WORLD_W, WORLD_H } from './config.js';
 
-export function districtAt(city, x, z) {
-  return city.districts.find(d => x >= d.x0 && x <= d.x1 && z >= d.z0 && z <= d.z1)?.id || 'marina';
+export const STREETS = [
+  { id: 'marina-blvd', name: 'Marina Boulevard', axis: 'h', at: 60, from: 0, to: 640 },
+  { id: 'neon-mile', name: 'Neon Mile', axis: 'h', at: 130, from: 0, to: 640 },
+  { id: 'sunset-ave', name: 'Sunset Avenue', axis: 'h', at: 220, from: 0, to: 640 },
+  { id: 'market-st', name: 'Market Street', axis: 'h', at: 300, from: 0, to: 640 },
+  { id: 'palm-row', name: 'Palm Row', axis: 'h', at: 380, from: 0, to: 640 },
+  { id: 'hill-rd', name: 'Hill Road', axis: 'h', at: 440, from: 0, to: 640 },
+  { id: 'dock-st', name: 'Dock Street', axis: 'v', at: 60, from: 0, to: 480 },
+  { id: 'coral-ave', name: 'Coral Avenue', axis: 'v', at: 180, from: 0, to: 480 },
+  { id: 'gold-st', name: 'Gold Street', axis: 'v', at: 320, from: 0, to: 480 },
+  { id: 'tower-blvd', name: 'Tower Boulevard', axis: 'v', at: 460, from: 0, to: 480 },
+  { id: 'vista-way', name: 'Vista Way', axis: 'v', at: 580, from: 0, to: 480 },
+];
+
+export const LANDMARKS = [
+  { id: 'ferris', name: 'Beachfront Ferris Wheel', x: 300, y: 300, kind: 'ferris' },
+  { id: 'bank', name: 'Downtown Bank Tower', x: 520, y: 90, kind: 'tower' },
+  { id: 'marina-docks', name: 'Marina Yacht Docks', x: 90, y: 40, kind: 'docks' },
+  { id: 'market', name: 'Old Town Market Square', x: 110, y: 240, kind: 'square' },
+  { id: 'race-gate', name: 'Neon Mile Race Gate', x: 320, y: 130, kind: 'gate' },
+  { id: 'penthouse', name: 'Penthouse Tower', x: 520, y: 90, kind: 'tower' },
+  { id: 'diner', name: 'Neon Mile Diner', x: 300, y: 80, kind: 'diner' },
+  { id: 'overlook', name: 'Hillside Overlook', x: 560, y: 280, kind: 'view' },
+];
+
+export function buildCity(seed = 1) {
+  const rng = createRng(seed);
+  const nodes = [];
+  const edges = [];
+  const nodeByKey = new Map();
+  function nodeId(x, y) {
+    const key = x + ',' + y;
+    if (!nodeByKey.has(key)) {
+      nodeByKey.set(key, nodes.length);
+      nodes.push({ id: nodes.length, x, y });
+    }
+    return nodeByKey.get(key);
+  }
+  const hStreets = STREETS.filter((s) => s.axis === 'h');
+  const vStreets = STREETS.filter((s) => s.axis === 'v');
+  for (let i = 0; i < hStreets.length; i++) {
+    for (let j = 0; j < vStreets.length - 1; j++) {
+      const a = nodeId(vStreets[j].at, hStreets[i].at);
+      const b = nodeId(vStreets[j + 1].at, hStreets[i].at);
+      edges.push({ a, b, street: hStreets[i].id });
+    }
+  }
+  for (let j = 0; j < vStreets.length; j++) {
+    for (let i = 0; i < hStreets.length - 1; i++) {
+      const a = nodeId(vStreets[j].at, hStreets[i].at);
+      const b = nodeId(vStreets[j].at, hStreets[i + 1].at);
+      edges.push({ a, b, street: vStreets[j].id });
+    }
+  }
+
+  const buildings = [];
+  let attempts = 0;
+  while (buildings.length < 200 && attempts < 20000) {
+    attempts++;
+    const x = rng.range(16, WORLD_W - 16);
+    const y = rng.range(16, WORLD_H - 16);
+    const w = rng.range(10, 18);
+    const d = rng.range(10, 18);
+    // Footprint-aware road clearance: the road surface is +/-7 around a
+    // street centreline and the sidewalk runs to +/-9.5, so a building's
+    // footprint edge must stay at least 12 from every centreline — a
+    // sidewalk gap, never a wall on the asphalt. The old code only
+    // tested the CENTRE point against +/-7, so an 18-wide building
+    // could jut 2 units into the road: that is the "gedung nutupin
+    // jalan" Sky flagged on the video.
+    if (!footprintClearOfRoads(x, y, w, d)) continue;
+    // Footprint-aware sea check (old code only tested the centre).
+    if (x - w / 2 < 4 || x + w / 2 > WORLD_W - 4 || y + d / 2 > WORLD_H - 8) continue;
+    let ok = true;
+    for (const b of buildings) {
+      if (Math.abs(b.x - x) < (b.w + w) / 2 + 1 && Math.abs(b.y - y) < (b.d + d) / 2 + 1) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const district = districtAtPoint(x, y);
+    const tier = rng.pick([1, 1, 2, 2, 3]);
+    const floors = tier === 1 ? rng.int(1, 3) : tier === 2 ? rng.int(3, 7) : rng.int(7, 14);
+    buildings.push({
+      id: 'b' + buildings.length,
+      x,
+      y,
+      w,
+      d,
+      floors,
+      height: floors * 3.2,
+      tier,
+      district: district.id,
+      pastel: rng.int(0, 14),
+      setback: rng.chance(0.4),
+      neon: rng.chance(0.3) ? rng.int(0, 3) : -1,
+      awning: rng.chance(0.5),
+      roof: rng.pick(['flat', 'flat', 'pitched', 'tower', 'ac', 'tank']),
+    });
+  }
+
+  const trees = [];
+  attempts = 0;
+  while (trees.length < 150 && attempts < 3000) {
+    attempts++;
+    const x = rng.range(12, WORLD_W - 12);
+    const y = rng.range(12, WORLD_H - 12);
+    if (isOnRoad(x, y)) continue;
+    if (isInSea(x, y)) continue;
+    let ok = true;
+    for (const b of buildings) {
+      const dx = b.x - x;
+      const dy = b.y - y;
+      if (dx * dx + dy * dy < 12 * 12) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const nearBeach = y > 140 && y < 340 && x > 200 && x < 420;
+    trees.push({
+      id: 't' + trees.length,
+      x,
+      y,
+      kind: nearBeach ? 'palm' : rng.pick(['palm', 'palm', 'street']),
+      height: rng.range(4.5, 7.5),
+      lean: rng.range(-0.06, 0.06),
+    });
+  }
+
+  return { seed, nodes, edges, buildings, trees, streets: STREETS, landmarks: LANDMARKS };
 }
-export const pointInWater = (city, x, z) => z > city.waterLineZ;
-export const beachSDF = (city, x, z) => city.waterLineZ - z;
-export function nearestNode(city, x, z) {
-  return city.graph.reduce((best, n) => !best || (n.x-x)**2 + (n.z-z)**2 < (best.x-x)**2 + (best.z-z)**2 ? n : best, null);
+
+export function isOnRoad(x, y) {
+  for (const s of STREETS) {
+    if (s.axis === 'h' && Math.abs(y - s.at) < 7) return true;
+    if (s.axis === 'v' && Math.abs(x - s.at) < 7) return true;
+  }
+  return false;
 }
-export function nearestRoadPoint(city, x, z) {
-  let best = null, distance = Infinity;
-  for (const road of city.roads) {
-    const px = clamp(x, road.x0, road.x1), pz = clamp(z, road.z0, road.z1);
-    const d = (px-x)**2 + (pz-z)**2;
-    if (d < distance) { distance = d; best = { x: px, z: pz, road }; }
+
+// Minimum distance from a street centreline to a building footprint
+// edge: road surface (+/-7) + sidewalk (+/-9.5) + a visible gap.
+// A building passes only if its WHOLE footprint clears every street.
+export const ROAD_SETBACK = 12;
+
+export function footprintClearOfRoads(x, y, w, d) {
+  for (const s of STREETS) {
+    if (s.axis === 'h' && Math.abs(y - s.at) < ROAD_SETBACK + d / 2) return false;
+    if (s.axis === 'v' && Math.abs(x - s.at) < ROAD_SETBACK + w / 2) return false;
+  }
+  return true;
+}
+
+export function isInSea(x, y) {
+  return y > WORLD_H - 8 || x < 4 || x > WORLD_W - 4;
+}
+
+export function districtAtPoint(x, y) {
+  for (const d of DISTRICTS) {
+    if (x >= d.bounds.x && x < d.bounds.x + d.bounds.w && y >= d.bounds.y && y < d.bounds.y + d.bounds.h) {
+      return d;
+    }
+  }
+  return DISTRICTS[0];
+}
+
+export function nearestNode(city, x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const n of city.nodes) {
+    const dx = n.x - x;
+    const dy = n.y - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = n;
+    }
   }
   return best;
 }
-export function randomRoadPoint(rng, city) {
-  const road = randomPick(rng, city.roads), t = rng();
-  return { x: road.x0 + (road.x1-road.x0)*t, z: road.z0 + (road.z1-road.z0)*t, road };
-}
-export function isOnRoad(city, x, z) {
-  const p = nearestRoadPoint(city, x, z);
-  return !!p && (p.x-x)**2 + (p.z-z)**2 <= (CONFIG.ROAD_W/2)**2;
-}
-function connected(nodes) {
-  const seen = new Set([0]), queue = [0];
-  for (let i = 0; i < queue.length; i++) for (const id of nodes[queue[i]].edges) {
-    if (!seen.has(id)) { seen.add(id); queue.push(id); }
+
+export function roadConnectivity(city) {
+  const adj = new Map();
+  for (const n of city.nodes) adj.set(n.id, []);
+  for (const e of city.edges) {
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
   }
-  return seen.size === nodes.length;
+  const seen = new Set([0]);
+  const stack = [0];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    for (const nb of adj.get(cur) || []) {
+      if (!seen.has(nb)) {
+        seen.add(nb);
+        stack.push(nb);
+      }
+    }
+  }
+  return { reached: seen.size, total: city.nodes.length, connected: seen.size === city.nodes.length };
 }
 
-export function generateCity(seed) {
-  const rng = mulberry32(seed);
-  const halfW = CONFIG.WORLD_W/2, halfH = CONFIG.WORLD_H/2;
-  // Rectangles tile the land, including shared district boundaries.
-  const bounds = {
-    marina: [-halfW, 130, halfW, halfH],
-    'old-solmar': [-halfW, -65, -80, 130],
-    'neon-mile': [-80, -65, 160, 130],
-    'harbor-docks': [160, -halfH, halfW, 130],
-    'palm-heights': [-halfW, -halfH, -80, -65],
-    downtown: [-80, -halfH, 160, -65],
-  };
-  const districts = DISTRICTS.map(d => {
-    const [x0,z0,x1,z1] = bounds[d.id];
-    return { ...d, x0,z0,x1,z1 };
-  });
-  const city = { seed, districts, roads: [], intersections: [], graph: [], blocks: [], buildings: [],
-    landmarks: [], parks: [], beach: { x0:-halfW, x1:halfW, z0:200, z1:240 }, waterLineZ:240,
-    spawn: {}, raceRoutes: [], postcards: [], props: [], helpers: {} };
-  const xs = Array.from({length:9}, (_,i) => -halfW + 12 + i*(CONFIG.WORLD_W-24)/8);
-  const zs = Array.from({length:7}, (_,i) => -halfH + 16 + i*(200+halfH-32)/6);
-  function road(x0,z0,x1,z1,horizontal,index) {
-    city.roads.push({ id:city.roads.length, name:STREET_NAMES[index%STREET_NAMES.length],
-      x0,z0,x1,z1,horizontal,district:districtAt(city,(x0+x1)/2,(z0+z1)/2) });
+export function findPath(city, fromId, toId) {
+  const adj = new Map();
+  for (const n of city.nodes) adj.set(n.id, []);
+  for (const e of city.edges) {
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
   }
-  zs.forEach((z,i) => road(xs[0],z,xs[8],z,true,i));
-  xs.forEach((x,i) => road(x,zs[0],x,zs[6],false,i+7));
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const nodes = [];
-    const node = (x,z) => { const n = {id:nodes.length,x,z,edges:[]}; nodes.push(n); return n.id; };
-    const link = (a,b) => { nodes[a].edges.push(b); nodes[b].edges.push(a); };
-    const grid = zs.map(z => xs.map(x => node(x,z)));
-    city.intersections = nodes.map(n => ({id:n.id,x:n.x,z:n.z}));
-    for (let j=0;j<7;j++) for (let i=0;i<9;i++) {
-      if (i<8) { const m=node((xs[i]+xs[i+1])/2,zs[j]); link(grid[j][i],m); link(m,grid[j][i+1]); }
-      if (j<6) { const m=node(xs[i],(zs[j]+zs[j+1])/2); link(grid[j][i],m); link(m,grid[j+1][i]); }
+  const prev = new Map([[fromId, null]]);
+  const queue = [fromId];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    if (cur === toId) break;
+    for (const nb of adj.get(cur) || []) {
+      if (!prev.has(nb)) {
+        prev.set(nb, cur);
+        queue.push(nb);
+      }
     }
-    if (connected(nodes)) { city.graph=nodes; break; }
   }
-  if (!city.graph.length) throw new Error('Road graph could not be connected.');
-  const inset = CONFIG.ROAD_W/2 + CONFIG.SIDEWALK_W;
-  for (let j=0;j<6;j++) for (let i=0;i<8;i++) {
-    const block = {id:city.blocks.length,x0:xs[i]+inset,z0:zs[j]+inset,x1:xs[i+1]-inset,z1:zs[j+1]-inset};
-    block.district = districtAt(city,(block.x0+block.x1)/2,(block.z0+block.z1)/2);
-    city.blocks.push(block);
+  if (!prev.has(toId)) return null;
+  const path = [];
+  let cur = toId;
+  while (cur != null) {
+    path.unshift(cur);
+    cur = prev.get(cur);
   }
-  // Reserve portions of three blocks as public green space.
-  for (const [index,size] of [[19,18],[8,10],[38,10]]) {
-    const b=city.blocks[index];
-    city.parks.push({id:`park-${index}`,x0:b.x0,z0:b.z0,x1:b.x1,z1:b.z0+size,district:b.district});
-    b.z0 += size+2;
-  }
-  for (const b of city.blocks) city.buildings.push(...generateBuildingsForBlock(rng,b,districts.find(d=>d.id===b.district)));
-  const specs = [
-    ['wooden-pier','Wooden Pier','pier',-154,224], ['lighthouse','Lighthouse','lighthouse',-280,220],
-    ['neon-arch','Neon Arch','arch',0,116], ['harbor-crane','Harbor Crane','crane',270,116],
-    ['hill-viewpoint','Hill Viewpoint','viewpoint',-230,-224], ['glass-towers','Glass Towers','towers',77,-190],
-    ['rosas-diner',"Rosa's Diner",'diner',-231,48], ['rosa-garage',"Rosa's Garage",'garage',-154,48],
-    ['harbor-arms','Harbor Arms','gunstore',231,48], ['safehouse','Safehouse','safehouse',-231,-20],
-    ['penthouse','Palm Heights Penthouse','penthouse',-154,-156], ['paynspray','Pay n Spray','respray',-77,48],
-    ['helipad-downtown','Downtown Helipad','helipad',77,-156], ['helipad-harbor','Harbor Helipad','helipad',231,-88],
-  ];
-  city.landmarks=specs.map(([id,name,kind,x,z])=>({id,name,kind,x,z}));
-  const location = id => {const l=city.landmarks.find(l=>l.id===id); return {x:l.x,z:l.z};};
-  city.spawn={player:{x:-147,z:48},garage:location('rosa-garage'),pier:location('wooden-pier'),
-    diner:location('rosas-diner'),gunstore:location('harbor-arms'),respray:location('paynspray'),
-    safehouse:location('safehouse'),penthouse:location('penthouse'),
-    helipads:[location('helipad-downtown'),location('helipad-harbor')],marina:{x:-77,z:192}};
-  // Perimeter walks give each race an ordered, drivable sequence.
-  city.raceRoutes=RACE_ROUTES.map((r,k)=>{
-    const row=[5,3,1][k], col=[0,2,5][k];
-    const loop=[[col,row],[col+1,row],[col+2,row],[col+2,row-1],[col+2,row-2],
-      [col+1,row-2],[col,row-2],[col,row-1],[col,row],[col+1,row]];
-    return {...r,checkpoints:loop.slice(0,r.checkpoints).map(([i,j])=>({x:xs[i],z:zs[j],nodeId:j*9+i}))};
-  });
-  for(let i=0;i<CONFIG.POSTCARD_COUNT;i++) {
-    const district=districts[i%districts.length];
-    const choices=city.intersections.filter(p=>districtAt(city,p.x,p.z)===district.id);
-    const p=i<city.landmarks.length ? city.landmarks[i] : randomPick(rng,choices);
-    city.postcards.push({id:`postcard-${i+1}`,x:p.x,z:p.z,y:0.7,district:districtAt(city,p.x,p.z)});
-  }
-  function sidewalk(i) {
-    const road=city.roads[i%city.roads.length], t=0.03+rng()*0.94;
-    const offset=(CONFIG.ROAD_W/2+2)*(i%2?1:-1);
-    const x=road.x0+(road.x1-road.x0)*t+(road.horizontal?0:offset);
-    const z=road.z0+(road.z1-road.z0)*t+(road.horizontal?offset:0);
-    return {x,z,district:districtAt(city,x,z),rot:road.horizontal?0:Math.PI/2,scale:0.85+rng()*0.3};
-  }
-  for(let i=0;i<120;i++) {
-    const p=sidewalk(i); const kind=p.district==='marina'?'palm':p.district==='palm-heights'?(i%3?'palm':'pine'):p.district==='harbor-docks'?'pine':'oak';
-    city.props.push({kind,...p});
-  }
-  for(let i=0;i<90;i++) {
-    const p=sidewalk(i); const type=LAMP_TYPES.find(l=>l.districts.includes(p.district))?.id || 'modern';
-    city.props.push({kind:'lamp',type,...p});
-  }
-  for(let i=0;i<80;i++) {
-    const p=sidewalk(i), options=STREET_FURNITURE.filter(f=>f.districts.includes(p.district));
-    let weight=rng()*options.reduce((sum,f)=>sum+f.density,0), chosen=options[0];
-    for(const f of options) { weight-=f.density; if(weight<=0) {chosen=f;break;} }
-    city.props.push({kind:chosen.kind,...p});
-  }
-  city.helpers={gridX:xs,gridZ:zs,roadWidth:CONFIG.ROAD_W,sidewalkWidth:CONFIG.SIDEWALK_W,graphConnected:true};
-  return city;
+  return path;
 }

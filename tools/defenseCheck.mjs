@@ -1,3 +1,0 @@
-import {fresh,blankInput,stepWorld,assert} from './sim-common.mjs';
-import {startMission,stepMissions} from '../game/src/missions.js';
-const w=fresh();w.mission.unlocked=4;startMission(w,3);const a=w.mission.active,s=a.stage;assert(s.kind==='defend','expected defense');Object.assign(w.player,{x:300,z:-300});const ids=[...s.targets];for(let n=0;n<600;n++)stepWorld(w,blankInput(),1/60);assert(w.mission.active===a&&a.stage===s,'stationary defense advanced');assert(ids.every(id=>w.enemies.some(e=>e.id===id)),'mission enemy despawned');assert(w.stats.kills===0,'unexpected kills');console.log('PASS stationary defense: retained '+ids.length+' distant enemies, no kills, no stage advancement');

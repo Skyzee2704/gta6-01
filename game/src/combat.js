@@ -1,29 +1,103 @@
-import { CONFIG } from './config.js';
-import { registerSystem, collideCircle, damagePlayer, pushEvent } from './world.js';
-export function spawnEnemy(w,x,z,opts={}) {
-  if(w.enemies.length>=CONFIG.MAX_ENEMIES)return null;
-  const id=`enemy-${w.flags.enemySerial=(w.flags.enemySerial||0)+1}`;
-  const e={id,x,z,heading:0,health:100,weapon:['pistol','smg','rifle'].includes(opts.weapon)?opts.weapon:'pistol',state:'cover',cover:null,fireT:0,burstLeft:0,strafeDir:1,...opts};
-  w.enemies.push(e);return e;
+// SOLMAR 3D — combat: hit detection, enemy chevron + hit marker data,
+// corpses with blood pools (cleaned after 25 s), damage numbers, cover
+// checks. Pure logic; the renderer draws markers from the returned state.
+import { createRng } from './random.js';
+import { spreadFor } from './weapons.js';
+
+export function createCombat(seed = 1) {
+  return {
+    rng: createRng(seed * 23 + 5),
+    corpses: [],
+    markers: [],
+    hits: [],
+    blood: [],
+  };
 }
-export function damageEnemy(w,e,dmg,from='player') {
-  if(!w.enemies.includes(e)||e.health<=0||dmg<=0)return;
-  e.health=Math.max(0,e.health-dmg);
-  if(!e.health){w.stats.kills++;pushEvent(w,'enemy-down',{id:e.id,from});w.enemies=w.enemies.filter(o=>o!==e);}
+
+export function distance2D(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
-function move(w,e,x,z,dt,speed=3){const d=Math.hypot(x-e.x,z-e.z);if(!d)return;const t=Math.min(d,speed*dt)/d;Object.assign(e,collideCircle(w,e.x+(x-e.x)*t,e.z+(z-e.z)*t,0.45));}
-function corner(w,e){let best=null,dist=15;for(const b of w.city?.buildings||[])for(const sx of [-1,1])for(const sz of [-1,1]){const p={x:b.x+sx*(b.w/2+1),z:b.z+sz*(b.d/2+1)},d=Math.hypot(p.x-e.x,p.z-e.z);if(d<dist){dist=d;best=p;}}return best;}
-export function stepCombat(w,input,dt){
-  w.enemies=w.enemies.filter(e=>e.health>0&&(e.missionId||Math.hypot(e.x-w.player.x,e.z-w.player.z)<=250)).slice(0,CONFIG.MAX_ENEMIES);
-  for(const e of w.enemies){const p=w.player,d=Math.hypot(p.x-e.x,p.z-e.z);e.heading=Math.atan2(p.z-e.z,p.x-e.x);e.fireT-=dt;
-    if(d>40){e.state='advance';e.cover=null;move(w,e,p.x,p.z,dt);continue;}
-    if(d<12){e.state='strafe';move(w,e,e.x-Math.sin(e.heading)*e.strafeDir*3,e.z+Math.cos(e.heading)*e.strafeDir*3,dt);}
-    else {e.cover ||= corner(w,e);e.state='cover';if(e.cover&&Math.hypot(e.cover.x-e.x,e.cover.z-e.z)>0.5){move(w,e,e.cover.x,e.cover.z,dt);continue;}e.state='burst';}
-    if(w.flags.interior||(!w.mission.active&&w.wanted===0)||p.dead||e.fireT>0)continue;
-    if(!e.burstLeft)e.burstLeft=3+Math.floor(w.rng()*3);
-    if(w.rng()<Math.max(0.08,Math.min(0.5,0.55-d*0.008)))damagePlayer(w,e.weapon==='rifle'?12:e.weapon==='smg'?8:6,e.id);
-    w.projectiles.push({kind:'tracer',x:e.x,y:1.3,z:e.z,vx:Math.cos(e.heading)*90,vz:Math.sin(e.heading)*90,life:Math.max(0.03,d/90)});
-    pushEvent(w,'enemy-shot',{x:e.x,z:e.z,id:e.id});e.burstLeft--;e.fireT=e.burstLeft?0.12:1+w.rng();
+
+export function fireAt(combat, shooter, target, weapon) {
+  const dist = distance2D(shooter, target);
+  const inRange = dist <= weapon.def.range;
+  if (!inRange) return { hit: false, reason: 'out-of-range', distance: dist };
+  const base = Math.max(0.2, 1 - dist / weapon.def.range);
+  const hitChance = base * (1 - spreadFor(weapon.def.id) * 0.5);
+  const roll = combat.rng.next();
+  const hit = roll < hitChance;
+  const result = { hit, distance: dist, weapon: weapon.def.id, target: target.id || 'target' };
+  if (hit) {
+    const damage = weapon.def.damage * (0.85 + combat.rng.next() * 0.3);
+    target.health = Math.max(0, (target.health || 100) - damage);
+    result.damage = Math.round(damage);
+    result.killed = target.health <= 0;
+    result.healthLeft = target.health;
+    combat.hits.push({ x: target.x, y: target.y, damage: result.damage, t: 0 });
+    if (result.killed) {
+      addCorpse(combat, target);
+    }
   }
+  return result;
 }
-registerSystem('combat',stepCombat);
+
+export function addCorpse(combat, target) {
+  combat.corpses.push({
+    x: target.x,
+    y: target.y,
+    heading: target.heading || 0,
+    t: 0,
+    name: target.name || 'Vulture',
+  });
+  combat.blood.push({ x: target.x, y: target.y, t: 0, size: 1.2 });
+  return combat.corpses.length;
+}
+
+export function updateCombat(combat, dt) {
+  for (const c of combat.corpses) c.t += dt;
+  for (const b of combat.blood) b.t += dt;
+  for (const h of combat.hits) h.t += dt;
+  combat.corpses = combat.corpses.filter((c) => c.t < 25);
+  combat.blood = combat.blood.filter((b) => b.t < 25);
+  combat.hits = combat.hits.filter((h) => h.t < 1.2);
+  return combat;
+}
+
+export function targetChevron(target, player) {
+  const dist = distance2D(player, target);
+  return {
+    x: target.x,
+    y: target.y,
+    above: 2.4,
+    visible: dist < 90 && (target.health || 0) > 0,
+    color: 0xff2e2e,
+    distance: Math.round(dist),
+  };
+}
+
+export function hitMarkerData(hit) {
+  return {
+    show: hit.hit,
+    killed: hit.killed || false,
+    damage: hit.damage || 0,
+    t: 0,
+  };
+}
+
+export function meleeAttack(attacker, target) {
+  const dist = distance2D(attacker, target);
+  if (dist > 2.2) return { hit: false, reason: 'too-far', distance: dist };
+  target.health = Math.max(0, (target.health || 100) - 25);
+  return { hit: true, damage: 25, killed: target.health <= 0, healthLeft: target.health };
+}
+
+export function explosionAt(combat, x, y, radius, damage) {
+  const affected = [];
+  for (const c of combat.corpses) {
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d < radius) affected.push({ kind: 'corpse', id: c.name, distance: d });
+  }
+  return { x, y, radius, damage, affected };
+}

@@ -1,36 +1,70 @@
-// Integer arithmetic keeps procedural generation repeatable across runtimes.
+// SOLMAR 3D — deterministic seeded RNG. Every random choice in the sim
+// flows through here so a fixed seed replays identically. No imports.
+export function hashSeed(text) {
+  let h = 2166136261;
+  const s = String(text);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
 export function mulberry32(seed) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let value = Math.imul(state ^ (state >>> 15), state | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  let a = seed >>> 0;
+  return function next() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-function mix32(value) {
-  value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
-  value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
-  return (value ^ (value >>> 16)) >>> 0;
+export function createRng(seed) {
+  const numeric = typeof seed === 'string' ? hashSeed(seed) : seed >>> 0;
+  const next = mulberry32(numeric);
+  return {
+    seed: numeric,
+    next() {
+      return next();
+    },
+    range(min, max) {
+      return min + next() * (max - min);
+    },
+    int(min, max) {
+      return Math.floor(min + next() * (max - min + 1));
+    },
+    pick(list) {
+      if (!list || list.length === 0) return undefined;
+      return list[Math.floor(next() * list.length)];
+    },
+    chance(p) {
+      return next() < p;
+    },
+    shuffle(list) {
+      const out = list.slice();
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const tmp = out[i];
+        out[i] = out[j];
+        out[j] = tmp;
+      }
+      return out;
+    },
+    sign() {
+      return next() < 0.5 ? -1 : 1;
+    },
+    gaussian() {
+      return (next() + next() + next() - 1.5) / 1.5;
+    },
+  };
 }
 
-export function hash2(x, y) {
-  return mix32(Math.imul(x | 0, 0x1f123bb5) ^ Math.imul(y | 0, 0x5f356495)) / 4294967296;
+export function clamp(v, min, max) {
+  return v < min ? min : v > max ? max : v;
 }
 
-export function hashString(s) {
-  let value = 2166136261;
-  for (let i = 0; i < s.length; i += 1) {
-    value = Math.imul(value ^ s.charCodeAt(i), 16777619);
-  }
-  return mix32(value) / 4294967296;
+export function rngFromState(state) {
+  return createRng(state && state.seed != null ? state.seed : 1);
 }
-
-export const randomRange = (rng, a, b) => a + rng() * (b - a);
-export const randomInt = (rng, a, b) => Math.floor(randomRange(rng, Math.ceil(a), Math.floor(b) + 1));
-export const randomPick = (rng, arr) => arr[randomInt(rng, 0, arr.length - 1)];
-export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-export const lerp = (a, b, t) => a + (b - a) * t;
-// Squared distance on the ground plane; avoids a square root in proximity checks.
-export const dist2 = (ax, az, bx, bz) => (bx - ax) ** 2 + (bz - az) ** 2;

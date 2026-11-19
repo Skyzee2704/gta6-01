@@ -1,22 +1,93 @@
-import { registerSystem, pointInBuilding, damagePlayer, spawnParticles, addNotice, pushEvent } from './world.js';
-let serial=0;
-export function spawnHeli(w,x,z){const h={id:`player-heli-${++serial}`,x,z,y:0,heading:0,speed:0,vy:0,driver:null,rotor:0,health:100};(w.helis ||= []).push(h);return h;}
-// C is input.crouch; keysC is accepted for older input adapters.
-export function stepAircraft(w,input,dt){if(!w.city)return;if(!w.flags.aircraftSpawned){w.flags.aircraftSpawned=true;const p=w.city.spawn.helipads[0];spawnHeli(w,p.x,p.z);}
-  const p=w.player;for(const h of [...(w.helis||[])]){h.crashT=Math.max(0,(h.crashT||0)-dt);
-    if(p.heliId===h.id){h.driver='player';p.onFoot=false;p.vehicleId=null;
-      if(input.pressed?.enter&&h.y<2){h.driver=null;p.heliId=null;Object.assign(p,{onFoot:true,x:h.x+5,z:h.z,y:0,speed:0});continue;}
-      h.heading+=(Number(!!input.right)-Number(!!input.left))*1.1*dt;
-      h.speed+=(Number(!!input.forward)-Number(!!input.back))*16*dt;h.speed*=Math.exp(-0.35*dt);h.speed=Math.max(-15,Math.min(input.run?40:32,h.speed));
-      h.vy+=(Number(!!input.jump)-Number(!!(input.crouch||input.keysC)))*15*dt;h.vy*=Math.exp(-1.5*dt);h.y+=h.vy*dt;
-      if(h.y>=120){h.y=120;h.vy=Math.min(0,h.vy);}if(h.y<=0){h.y=0;h.vy=0;h.speed*=Math.exp(-3*dt);}
-      const old={x:h.x,z:h.z};h.x+=Math.cos(h.heading)*h.speed*dt;h.z+=Math.sin(h.heading)*h.speed*dt;
-      const building=pointInBuilding(w.city,h.x,h.z)&&w.city.buildings.find(b=>Math.abs(h.x-b.x)<=b.w/2&&Math.abs(h.z-b.z)<=b.d/2&&h.y<(b.totalH??b.height??b.h??10));
-      if(building&&!h.crashT){h.health-=40;h.x=old.x;h.z=old.z;h.y=0;h.speed=0;h.vy=0;h.crashT=2;damagePlayer(w,10,'helicopter-crash');addNotice(w,'Helicopter hit a building! Emergency landing.');pushEvent(w,'heli-crash',{id:h.id});
-        if(h.health<=0){spawnParticles(w,h.x,h.y,h.z,'fire',24);w.helis=w.helis.filter(o=>o!==h);p.heliId=null;Object.assign(p,{onFoot:true,x:h.x,z:h.z,y:0,speed:0});damagePlayer(w,30,'helicopter-crash');continue;}}
-      Object.assign(p,{x:h.x,z:h.z,y:h.y,heading:h.heading,speed:h.speed,onFoot:false});
-    }else if(p.onFoot&&!p.boatId&&!w.flags.interior&&input.pressed?.enter&&h.y<2&&Math.hypot(p.x-h.x,p.z-h.z)<8){p.heliId=h.id;p.onFoot=false;p.vehicleId=null;h.driver='player';pushEvent(w,'heli-board',{id:h.id});}
-    h.rotor+=dt*(h.driver?10+Math.abs(h.speed):0);
-  }
+// SOLMAR 3D — aircraft: drivable helicopter and plane. Rotor spin,
+// climb/descent, spotlight beam cone for the police heli, landing
+// detection, crash on hard impact.
+import { clamp } from './random.js';
+import { box, mergeBoxes, vertexMaterial } from './materials.js';
+
+export function createAircraftState(kind, x, y, z = 40) {
+  return {
+    kind: kind || 'heli',
+    x,
+    y,
+    z,
+    heading: 0,
+    speed: 0,
+    vertical: 0,
+    rotor: 0,
+    beamOn: kind === 'police-heli',
+    beamTarget: null,
+    landed: false,
+    condition: 100,
+  };
 }
-registerSystem('aircraft',stepAircraft);
+
+export function updateAircraft(a, input, dt) {
+  const topSpeed = a.kind === 'plane' ? 55 : 26;
+  const accel = input.up ? (a.kind === 'plane' ? 14 : 9) : input.down ? -8 : 0;
+  a.speed = clamp(a.speed + accel * dt, 0, topSpeed);
+  const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+  a.heading += steer * 1.1 * dt * (a.speed > 2 ? 1 : 0.3);
+  a.vertical = input.climb ? 8 : input.descend ? -8 : 0;
+  a.z = clamp(a.z + a.vertical * dt, 0, 120);
+  a.x += Math.sin(a.heading) * a.speed * dt;
+  a.y += Math.cos(a.heading) * a.speed * dt;
+  a.rotor += dt * (20 + a.speed * 0.4);
+  a.landed = a.z <= 0.5 && a.speed < 3;
+  if (a.landed) a.z = 0;
+  return a;
+}
+
+export function buildHeliMesh(materials, police = false) {
+  const g = new THREE.Group();
+  const paint = police ? 0x1a2a4a : 0xc22e2e;
+  const bodyParts = [
+    { w: 2.2, h: 1.4, d: 4.2, y: 1.2, color: paint },
+    { w: 0.5, h: 0.5, d: 4.5, y: 1.4, z: -3.8, color: paint },
+    { w: 0.15, h: 0.15, d: 3.4, x: -0.9, y: 0.2, color: 0x6a7078 },
+    { w: 0.15, h: 0.15, d: 3.4, x: 0.9, y: 0.2, color: 0x6a7078 },
+  ];
+  const body = new THREE.Mesh(mergeBoxes(bodyParts), vertexMaterial());
+  g.add(body);
+  const glass = new THREE.Mesh(
+    new THREE.BoxGeometry(2.0, 0.9, 1.2),
+    new THREE.MeshStandardMaterial({ color: 0x9fd8e8, roughness: 0.1, metalness: 0.4, transparent: true, opacity: 0.5 }),
+  );
+  glass.position.set(0, 1.4, 1.6);
+  g.add(glass);
+  const rotor = new THREE.Group();
+  rotor.position.y = 2.3;
+  const rotorMesh = new THREE.Mesh(
+    mergeBoxes([
+      { w: 9, h: 0.08, d: 0.35, color: 0x141416 },
+      { w: 0.35, h: 0.08, d: 9, color: 0x141416 },
+    ]),
+    vertexMaterial(),
+  );
+  rotor.add(rotorMesh);
+  rotor.name = 'rotor';
+  g.add(rotor);
+  if (police) {
+    const bar = box(1.2, 0.25, 0.4, materials.neonCyan);
+    bar.position.set(0, 2.05, 0.6);
+    g.add(bar);
+    const beam = new THREE.Mesh(
+      new THREE.ConeGeometry(6, 40, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    beam.position.set(0, -19, 0);
+    beam.rotation.x = Math.PI;
+    beam.name = 'beam';
+    g.add(beam);
+  }
+  g.userData = { rotor };
+  return g;
+}
+
+export function updateHeliMesh(mesh, state, dt) {
+  mesh.position.set(state.x, state.z + 1, state.y);
+  mesh.rotation.y = state.heading;
+  const rotor = mesh.userData.rotor;
+  if (rotor) rotor.rotation.y = state.rotor;
+  const beam = mesh.getObjectByName('beam');
+  if (beam) beam.visible = state.beamOn;
+}

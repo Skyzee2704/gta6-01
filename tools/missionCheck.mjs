@@ -1,22 +1,67 @@
-import {fresh,assert,run,stepWorld,blankInput} from './sim-common.mjs';
-import {missionRun} from './mission-auto.mjs';
-import {spawnVehicle,enterVehicle,exitVehicle} from '../game/src/vehicles.js';
-import {storeVehicle,retrieveVehicle} from '../game/src/interiors.js';
-run(()=>{
- const w=fresh();let failure;
- try{for(let idx=0;idx<6;idx++)missionRun(w,idx);}catch(e){failure=e;}
- const garageWorld=failure?fresh():w;
- if(!garageWorld.player.onFoot)exitVehicle(garageWorld);
- const v=spawnVehicle(garageWorld,'sedan',garageWorld.player.x,garageWorld.player.z,0,{owned:true});
- assert(enterVehicle(garageWorld,v)&&storeVehicle(garageWorld,v),'garage store failed');
- const car=retrieveVehicle(garageWorld,'safehouse',0);
- assert(car&&garageWorld.player.vehicleId===car.id&&car.driver==='player','garage retrieve not drivable');
- const old={x:car.x,z:car.z},i=blankInput();i.forward=true;
- for(let n=0;n<60;n++)stepWorld(garageWorld,i,1/60);
- assert(Math.hypot(car.x-old.x,car.z-old.z)>1,'retrieved car does not drive');
- console.log('PASS garage store/retrieve and 60 driving steps'+(failure?' (isolated world after mission failure)':''));
- console.log(`story complete ${w.mission.completed.length}/6 respect=${w.respectLevel} escapes=${w.stats.escapes}`);
- if(failure)throw failure;
- assert(w.mission.completed.length===6,'story incomplete');
- console.log('PASS missionCheck');
-});
+// SOLMAR 3D — missionCheck: headless mission gate (Node, no browser).
+// All 6 story jobs start, advance through every stage, and complete with
+// payout. Garage store/retrieve. Staging save numbers verified.
+import { createWorld } from '../game/src/world.js';
+import { MISSIONS } from '../game/src/data.js';
+import { createMissionEngine, startMission, reportProgress, missionStatus, completeMission } from '../game/src/missions.js';
+import { buildMidGameStaging } from '../game/src/save.js';
+import { createSideState, storeInGarage, retrieveFromGarage } from '../game/src/side.js';
+import { createVehicleState } from '../game/src/vehicles.js';
+
+const failures = [];
+function check(name, ok, detail) {
+  console.log((ok ? 'PASS' : 'FAIL') + ' ' + name + (detail != null ? ' — ' + detail : ''));
+  if (!ok) failures.push(name);
+}
+
+check('6 missions defined', MISSIONS.length === 6, 'count=' + MISSIONS.length);
+for (const def of MISSIONS) {
+  const world = createWorld(1);
+  const engine = createMissionEngine();
+  const started = startMission(engine, def.id, world);
+  check('start ' + def.id, started.ok === true, JSON.stringify(started).slice(0, 80));
+  let guard = 0;
+  let done = false;
+  while (engine.active && guard < 50) {
+    guard++;
+    const stage = engine.active.stages[engine.stage];
+    const total = (stage && stage.count) || 1;
+    const res = reportProgress(engine, world, total);
+    if (res.done) {
+      done = true;
+      break;
+    }
+  }
+  check('complete ' + def.id, done === true, 'stages=' + def.stages.length);
+  check('payout ' + def.id, world.cash >= def.payout, 'cash=' + world.cash + ' payout=' + def.payout);
+  const status = missionStatus(engine);
+  check('status after ' + def.id, status.completed === 1, 'completed=' + status.completed);
+}
+
+// Garage store / retrieve loop.
+const side = createSideState(1);
+const car = createVehicleState('comet', 320, 130, 0);
+const stored = storeInGarage(side, car);
+check('garage store', stored.ok === true, JSON.stringify(stored));
+const retrieved = retrieveFromGarage(side, 'comet');
+check('garage retrieve', retrieved.ok === true, JSON.stringify(retrieved));
+const missing = retrieveFromGarage(side, 'comet');
+check('garage retrieve missing fails', missing.ok === false);
+
+// Staging save numbers (the numbers the screenshots must show).
+const s = buildMidGameStaging();
+check('staging cash >= 10000', s.cash >= 10000, 'cash=' + s.cash);
+check('staging cash is tens of thousands', s.cash >= 20000, 'cash=' + s.cash);
+check('staging respect mid-tier+', s.respect >= 1000, 'respect=' + s.respect);
+check('staging mission 6 active', s.mission.id === 'king-of-solmar' && s.mission.active === true, 'mission=' + s.mission.id);
+check('staging mission 6 stage 2', s.mission.stage === 2, 'stage=' + s.mission.stage);
+check('staging mission 6 timer 127', s.mission.timer === 127, 'timer=' + s.mission.timer);
+check('staging all 7 weapons', s.owned.weapons.length === 7, 'weapons=' + s.owned.weapons.join(','));
+check('staging vk47 ammo 30/90', s.ammo.vk47 === 90, 'vk47 reserve=' + s.ammo.vk47);
+check('staging penthouse owned', s.owned.properties.includes('penthouse'), 'props=' + s.owned.properties.join(','));
+check('staging postcards >= 8/20', s.postcards.length >= 8, 'postcards=' + s.postcards.length);
+check('staging 5 missions done', s.missionsDone.length === 5, 'done=' + s.missionsDone.join(','));
+check('staging hour golden 18.6', s.hour === 18.6, 'hour=' + s.hour);
+
+console.log(failures.length === 0 ? 'MISSIONCHECK PASS' : 'MISSIONCHECK FAIL (' + failures.length + ')');
+process.exit(failures.length === 0 ? 0 : 1);

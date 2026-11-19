@@ -1,40 +1,101 @@
-import { CONFIG } from './config.js';
-import { hashString, clamp } from './random.js';
-import { spawnVehicle } from './vehicles.js';
-import { registerSystem, pushEvent, addNotice } from './world.js';
-export function trafficLightAt(city,nodeId,time){const phase=((time+hashString(String(nodeId))*24)%24+24)%24;return phase<14?'green':phase<17?'yellow':'red';}
-const pick=(w,a)=>a[Math.floor(w.rng()*a.length)];
-const types=['sedan','coupe','suv','pickup','van','taxi'];
-const seen=new WeakSet();
-export function stepTraffic(w,input,dt){
-  if(!w.city?.graph.length)return;
-  const graph=w.city.graph,p=w.player;
-  const shots=w.events.filter(e=>{if(seen.has(e))return false;seen.add(e);return e.kind==='shot';});
-  w.traffic=w.traffic.filter(t=>{const v=w.vehicles.find(v=>v.id===t.vehicleId);if(!v||v.driver!=='traffic')return false;
-    if(Math.hypot(v.x-p.x,v.z-p.z)>320){w.vehicles=w.vehicles.filter(o=>o!==v);return false;}return true;});
-  while(w.traffic.length<CONFIG.MAX_TRAFFIC){
-    const choices=graph.filter(n=>Math.hypot(n.x-p.x,n.z-p.z)<200);if(!choices.length)break;
-    const a=pick(w,choices),b=graph[pick(w,a.edges)],progress=w.rng();
-    const v=spawnVehicle(w,pick(w,types),a.x+(b.x-a.x)*progress,a.z+(b.z-a.z)*progress,Math.atan2(b.z-a.z,b.x-a.x),{driver:'traffic'});
-    w.traffic.push({vehicleId:v.id,node:a.id,nextNode:b.id,progress,speed:0,state:'drive',honkT:0,jamT:0,cruise:8+w.rng()*4,panicChecked:false});
-  }
-  for(const t of w.traffic){
-    const v=w.vehicles.find(v=>v.id===t.vehicleId);if(!v)continue;
-    const nearby=Math.hypot(v.x-p.x,v.z-p.z)<80;
-    const alarm=(w.wanted>=3&&nearby)||shots.some(e=>Math.hypot((e.x??p.x)-v.x,(e.z??p.z)-v.z)<40);
-    if(alarm&&!t.panicChecked){t.panicChecked=true;if(w.rng()<0.5)t.state='panic';}if(!alarm)t.panicChecked=false;
-    let a=graph[t.node],b=graph[t.nextNode],length=Math.hypot(b.x-a.x,b.z-a.z);
-    const remaining=(1-t.progress)*length,panic=t.state==='panic';
-    let target=t.cruise*(w.weather.kind==='rain'?0.85:1)*(panic?1.5:1),jam=false;
-    if(!panic&&b.edges.length>2&&remaining<12&&trafficLightAt(w.city,b.id,w.elapsed)!=='green')target=remaining<2?0:Math.min(target,remaining*0.8);
-    for(const o of w.traffic)if(o!==t&&o.node===t.node&&o.nextNode===t.nextNode){const gap=(o.progress-t.progress)*length;if(gap>0&&gap<8){target=Math.min(target,gap<4?0:o.speed);jam=true;}}
-    t.speed+=clamp(target-t.speed,-10*dt,4*dt);v.speed=t.speed;
-    t.jamT=jam&&t.speed<0.5?t.jamT+dt:0;t.honkT=Math.max(0,t.honkT-dt);
-    if(t.jamT>4&&t.honkT===0){pushEvent(w,'honk',{x:v.x,z:v.z});if(nearby)addNotice(w,"Honk! Traffic's jammed ahead of you.");t.honkT=10;}
-    if(!panic)t.state=t.speed<0.5?'stop':'drive';
-    let distance=t.progress*length+t.speed*dt;
-    while(distance>=length&&length>0){distance-=length;const previous=a.id;a=b;const options=a.edges.filter(id=>id!==previous);b=graph[pick(w,options.length?options:a.edges)];t.node=a.id;t.nextNode=b.id;length=Math.hypot(b.x-a.x,b.z-a.z);}
-    t.progress=length?distance/length:0;v.x=a.x+(b.x-a.x)*t.progress;v.z=a.z+(b.z-a.z)*t.progress;v.heading=Math.atan2(b.z-a.z,b.x-a.x);
-  }
+// SOLMAR 3D — traffic: civilian cars on the road graph, braking for the
+// player and for each other, lane discipline, despawn far behind.
+// Population ring: spawn out of view, never pop in.
+import { createRng } from './random.js';
+import { nearestNode, findPath } from './city.js';
+import { VEHICLES } from './data.js';
+
+export function createTraffic(seed = 1) {
+  return {
+    rng: createRng(seed * 41 + 9),
+    cars: [],
+    nextId: 1,
+    spawnTimer: 0,
+  };
 }
-registerSystem('traffic',stepTraffic);
+
+export function spawnTrafficCar(traffic, city, nearX, nearY) {
+  const rng = traffic.rng;
+  const def = rng.pick(VEHICLES.filter((v) => v.kind === 'car' || v.kind === 'taxi'));
+  const node = nearestNode(city, nearX + rng.range(-80, 80), nearY + rng.range(-80, 80));
+  const car = {
+    id: 'traffic' + traffic.nextId++,
+    def,
+    x: node.x + rng.range(-4, 4),
+    y: node.y + rng.range(-4, 4),
+    heading: rng.range(0, Math.PI * 2),
+    speed: rng.range(6, 12),
+    targetSpeed: rng.range(8, 14),
+    node: node.id,
+    path: null,
+    pathIdx: 0,
+    braking: false,
+    color: rng.pick([0xc22e2e, 0x2e6fc2, 0xe0a030, 0x3f7a3a, 0xf2f0e8, 0x8e2e6f]),
+  };
+  traffic.cars.push(car);
+  return car;
+}
+
+export function updateTraffic(traffic, city, player, dt) {
+  traffic.spawnTimer -= dt;
+  const want = 10;
+  if (traffic.cars.length < want && traffic.spawnTimer <= 0) {
+    traffic.spawnTimer = 0.8;
+    spawnTrafficCar(traffic, city, player.x, player.y);
+  }
+  for (const car of traffic.cars) {
+    let ahead = null;
+    let aheadD = Infinity;
+    for (const other of traffic.cars) {
+      if (other === car) continue;
+      const dx = other.x - car.x;
+      const dy = other.y - car.y;
+      const d = Math.hypot(dx, dy);
+      const dot = dx * Math.sin(car.heading) + dy * Math.cos(car.heading);
+      if (dot > 0 && d < aheadD) {
+        aheadD = d;
+        ahead = other;
+      }
+    }
+    const pdx = player.x - car.x;
+    const pdy = player.y - car.y;
+    const pd = Math.hypot(pdx, pdy);
+    const pdot = pdx * Math.sin(car.heading) + pdy * Math.cos(car.heading);
+    const blocked = (ahead && aheadD < 9) || (pdot > 0 && pd < 9);
+    car.braking = blocked;
+    const target = blocked ? 0 : car.targetSpeed;
+    car.speed += (target - car.speed) * Math.min(1, dt * 1.2);
+    if (!car.path || car.pathIdx >= car.path.length) {
+      const from = nearestNode(city, car.x, car.y);
+      const dest = city.nodes[traffic.rng.int(0, city.nodes.length - 1)];
+      car.path = findPath(city, from.id, dest.id) || [from.id];
+      car.pathIdx = 0;
+    }
+    const nextNode = city.nodes[car.path[car.pathIdx]];
+    if (nextNode) {
+      const dx = nextNode.x - car.x;
+      const dy = nextNode.y - car.y;
+      const d = Math.hypot(dx, dy);
+      const wantHeading = Math.atan2(dx, dy);
+      let dh = wantHeading - car.heading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      car.heading += Math.max(-1.4 * dt, Math.min(1.4 * dt, dh));
+      if (d < 4) car.pathIdx++;
+    }
+    car.x += Math.sin(car.heading) * car.speed * dt;
+    car.y += Math.cos(car.heading) * car.speed * dt;
+  }
+  const px = player.x;
+  const py = player.y;
+  traffic.cars = traffic.cars.filter((c) => {
+    const dx = c.x - px;
+    const dy = c.y - py;
+    return dx * dx + dy * dy < 130 * 130;
+  });
+  return traffic;
+}
+
+export function trafficNear(traffic, x, y, radius) {
+  return traffic.cars.filter((c) => Math.hypot(c.x - x, c.y - y) < radius);
+}

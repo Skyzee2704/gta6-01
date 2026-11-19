@@ -1,15 +1,103 @@
-import { registerSystem, addMoney, addRespect, addNotice, clearWanted } from './world.js';
-import { randomRoadPoint } from './city.js';
-import { giveWeapon } from './weapons.js';
-const dist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
-export function taxiMarker(w){const t=w.flags.taxi;return t?{x:t.x,z:t.z,color:t.stage==='pickup'?'#ffdb37':'#44df81'}:null;}
-function clearTaxi(w){const t=w.flags.taxi;if(t)w.npcs=w.npcs.filter(n=>n.id!==t.passengerId);w.flags.taxi=null;}
-export function stepSide(w,input,dt){const p=w.player;
-  const cards=w.pickups.filter(c=>c.kind==='postcard');for(const c of cards)if(!c.taken&&!c.collected&&dist(p,c)<3){c.taken=true;c.collected=true;addMoney(w,500);addRespect(w,60);addNotice(w,`Postcard: ${c.title||c.id} +$500`);}
-  if(cards.length>=20&&cards.every(c=>c.taken||c.collected)&&!w.flags.postcardBonus){w.flags.postcardBonus=true;addMoney(w,5000);giveWeapon(w,'sniper');addNotice(w,'All 20 postcards! Bonus 5000 dollars + free Sniper Longeye 308.');}
-  if(!w.city)return;const v=w.vehicles.find(v=>v.id===p.vehicleId),entered=v?.id!==w.flags.lastSideVehicle;w.flags.lastSideVehicle=v?.id||null;
-  if(v?.type==='taxi'&&entered&&!w.flags.taxi){const pos=randomRoadPoint(w.rng,w.city),id=`taxi-passenger-${w.flags.taxiSerial=(w.flags.taxiSerial||0)+1}`;w.npcs.push({id,x:pos.x,z:pos.z,health:100,state:'idle',idleT:1e9,dead:false});w.flags.taxi={stage:'pickup',x:pos.x,z:pos.z,timer:90,vehicleId:v.id,passengerId:id};addNotice(w,'Solmar Cab: pick up the passenger at the yellow marker.');}
-  const t=w.flags.taxi;if(t){t.timer-=dt;if(t.timer<=0){addNotice(w,'Cab: passenger gave up, too slow.');clearTaxi(w);}else if(v?.type==='taxi'&&v.id===t.vehicleId&&dist(p,t)<6){if(t.stage==='pickup'){const dest=randomRoadPoint(w.rng,w.city);t.distance=dist(t,dest);t.stage='dropoff';t.x=dest.x;t.z=dest.z;t.timer=120;w.npcs=w.npcs.filter(n=>n.id!==t.passengerId);addNotice(w,'Passenger aboard! Drop them at the green marker.');}else{const fare=50+Math.round(t.distance*0.25)+Math.round(t.timer*5);addMoney(w,fare);addRespect(w,20);addNotice(w,`Cab fare done: +$${fare} + 20 respect.`);clearTaxi(w);}}}
-  const spray=w.city.landmarks.find(l=>l.id==='paynspray')||w.city.spawn.respray;if(v&&spray&&dist(v,spray)<10&&input.pressed?.interact){const cost=150+w.wanted*100;if(w.money>=cost){addMoney(w,-cost);clearWanted(w,'respray');let color;do{color='#'+Math.floor(w.rng()*0x1000000).toString(16).padStart(6,'0');}while(color===v.color);v.color=color;addNotice(w,`Pay n Spray: fresh paint, wanted cleared (-$${cost}).`);}else addNotice(w,`Not enough cash for a respray ($${cost}).`);}
+// SOLMAR 3D — side activities: taxi fares, respray shop, property
+// purchase, postcard hunting, and the garage store/retrieve loop.
+import { POSTCARDS, PROPERTIES, RESPECT_TIERS } from './data.js';
+import { createRng } from './random.js';
+
+export function createSideState(seed = 1) {
+  return {
+    rng: createRng(seed * 61 + 2),
+    taxiActive: false,
+    taxiFare: null,
+    taxiPassenger: null,
+    resprayQueue: [],
+    postcardsFound: new Set(),
+    properties: [],
+    garage: [],
+    garageCapacity: 4,
+  };
 }
-registerSystem('side',stepSide);
+
+export function startTaxiFare(side, player) {
+  const dest = {
+    x: side.rng.range(40, 600),
+    y: side.rng.range(40, 440),
+    name: 'fare drop-off',
+  };
+  side.taxiActive = true;
+  side.taxiFare = {
+    dest,
+    distance: Math.round(Math.hypot(dest.x - player.x, dest.y - player.y)),
+    fare: 0,
+    tip: 0,
+    startedAt: Date.now(),
+  };
+  side.taxiPassenger = { mood: 100, name: 'Passenger' };
+  return side.taxiFare;
+}
+
+export function completeTaxiFare(side, player) {
+  if (!side.taxiActive || !side.taxiFare) return null;
+  const fare = side.taxiFare;
+  const payout = Math.max(40, Math.round(fare.distance * 0.45));
+  const tip = side.taxiPassenger && side.taxiPassenger.mood > 70 ? Math.round(payout * 0.25) : 0;
+  side.taxiActive = false;
+  side.taxiFare = null;
+  side.taxiPassenger = null;
+  return { payout, tip, total: payout + tip };
+}
+
+export function resprayCost(vehicle) {
+  return 350;
+}
+
+export function resprayVehicle(side, vehicle, color) {
+  const cost = resprayCost(vehicle);
+  side.resprayQueue.push({ vehicle: vehicle.def.id, color, cost, done: true });
+  vehicle.paint = color;
+  return { cost, color };
+}
+
+export function buyProperty(side, player, propertyId) {
+  const prop = PROPERTIES.find((p) => p.id === propertyId);
+  if (!prop) return { ok: false, reason: 'unknown-property' };
+  if (side.properties.includes(propertyId)) return { ok: false, reason: 'already-owned' };
+  if (player.cash < prop.price) return { ok: false, reason: 'not-enough-cash', price: prop.price };
+  player.cash -= prop.price;
+  side.properties.push(propertyId);
+  if (prop.id === 'penthouse') player.respect += 150;
+  return { ok: true, property: prop, cashLeft: player.cash };
+}
+
+export function findPostcard(side, player) {
+  for (const pc of POSTCARDS) {
+    if (side.postcardsFound.has(pc.id)) continue;
+    const d = Math.hypot(pc.x - player.x, pc.y - player.y);
+    if (d < 3) {
+      side.postcardsFound.add(pc.id);
+      player.respect += 25;
+      return { found: pc, total: side.postcardsFound.size, of: POSTCARDS.length };
+    }
+  }
+  return null;
+}
+
+export function storeInGarage(side, vehicle) {
+  if (side.garage.length >= side.garageCapacity) return { ok: false, reason: 'garage-full' };
+  side.garage.push({ id: vehicle.def.id, condition: vehicle.condition, paint: vehicle.paint || vehicle.def.color });
+  return { ok: true, stored: vehicle.def.id, count: side.garage.length };
+}
+
+export function retrieveFromGarage(side, vehicleId) {
+  const idx = side.garage.findIndex((v) => v.id === vehicleId);
+  if (idx < 0) return { ok: false, reason: 'not-in-garage' };
+  const [v] = side.garage.splice(idx, 1);
+  return { ok: true, vehicle: v, count: side.garage.length };
+}
+
+export function respectTierName(respect) {
+  let name = RESPECT_TIERS[0].name;
+  for (const t of RESPECT_TIERS) {
+    if (respect >= t.min) name = t.name;
+  }
+  return name;
+}

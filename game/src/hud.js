@@ -1,100 +1,233 @@
-import { CAST, DISTRICTS, MISSIONS, WEAPONS, VEHICLE_TYPES } from './data.js';
-import { districtAt } from './city.js';
-import { portraitCanvas } from './portraits.js';
-import { drawCityMap, drawMinimap } from './minimap.js';
-import { INTERIORS } from './interiors.js';
-import { loadGame, saveSummary } from './save.js';
+// SOLMAR 3D — HUD: all GTA panels. Cash + wanted stars + PCPD response
+// list (top-right), 5 weapon slots (top-centre-right), mission banner +
+// dialogue (top-left), round radar + district (bottom-left), vehicle card
+// (bottom-right), radio now-playing (bottom-centre), crosshair + hit
+// marker + target chevron (centre). Dark transparent + gold accent.
+import { ownedSlots } from './weapons.js';
+import { drawPortrait } from './portraits.js';
 
-const money=n=>'$'+Math.round(Number(n)||0).toLocaleString('en-US');
-const controls=[['WASD / Arrow keys','Move / steer'],['Mouse','Look / aim / wheel selection'],['Left mouse / F','Fire / attack'],['E','Enter / exit vehicle, interact, advance dialogue'],['Shift','Run'],['Space','Jump / handbrake'],['C','Crouch'],['Q (hold)','Weapon wheel; release to equip'],['[ / ]','Previous / next weapon'],['R','Reload'],['H','Horn'],['M','City map'],['V','Top-down / 3D view'],['Esc','Pause / leave interior']];
-const css=`
-.solmar-root{position:fixed;inset:0;z-index:30;color:#f5ead2;font:400 16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:none}.solmar-root *{box-sizing:border-box;font-family:inherit}.solmar-root [hidden]{display:none!important}.solmar-root h1,.solmar-root h2,.solmar-root p{margin:0}.solmar-root h2{font-size:24px;font-weight:700;text-align:center;color:#ffc94d}.solmar-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(5,9,20,.55);pointer-events:none;overflow:auto}.solmar-panel{width:100%;max-width:640px;margin:auto;background:rgba(10,14,30,.92);border:1px solid #2ee6c8;border-radius:12px;padding:26px 34px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:24px 0;pointer-events:auto}.solmar-panel>*{grid-column:1/-1;min-width:0}.solmar-root button{background:#ffc94d;color:#0b1026;border:0;border-radius:6px;padding:10px 18px;font-size:16px;font-weight:400;line-height:1.5;margin:6px;cursor:pointer;pointer-events:auto}.solmar-root button:focus-visible{outline:2px solid #2ee6c8;outline-offset:4px}.solmar-root button:disabled{opacity:.4;cursor:default}.solmar-root button.solmar-secondary{background:transparent;color:#f5ead2;box-shadow:inset 0 0 0 1px #2ee6c8}.solmar-actions{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}.solmar-map{background:rgba(239,231,209,.97);color:#18283c;max-width:960px;padding:18px 26px;gap:12px 0}.solmar-map h2{color:#705015}.solmar-map .solmar-secondary{color:#18283c}.solmar-map .solmar-mapcanvas{height:380px;min-height:0}.solmar-title{max-width:700px;padding:14px 24px;gap:8px 0}.solmar-title .solmar-logo{font-size:42px}.solmar-logo{font-size:52px;font-weight:800;letter-spacing:2px;line-height:1.1;text-align:center;color:#ffc94d}.solmar-centered{text-align:center}.solmar-small{font-size:13px}.solmar-card{padding:16px;border:1px solid #2ee6c8;border-radius:6px;text-align:left}.solmar-cast{display:flex;gap:16px;justify-content:space-between;overflow-x:auto}.solmar-cast figure{margin:0;flex:0 0 80px;text-align:center;font-size:13px}.solmar-cast canvas{display:block;margin:0 auto 8px;border-radius:6px}.solmar-list{display:flex;flex-direction:column;gap:8px;line-height:1.6}.solmar-pause{align-items:flex-start}.solmar-pause button{width:240px;margin:0;text-align:left}.solmar-setting{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center}.solmar-setting input{width:100%;accent-color:#ffc94d;pointer-events:auto}.solmar-table{display:grid;grid-template-columns:1fr 1.5fr;gap:8px 16px;text-align:left}.solmar-maplayout{display:grid;grid-template-columns:60% 40%;gap:0}.solmar-mapleft{min-width:0;padding-right:16px}.solmar-mapcanvas{width:100%;height:100%;min-height:350px;object-fit:contain;border-radius:6px}.solmar-mapright{min-width:0;display:flex;flex-direction:column;gap:16px;font-size:13px;line-height:1.6}.solmar-job{display:grid;grid-template-columns:32px 1fr;gap:8px;align-items:center}.solmar-job canvas{border-radius:4px}.solmar-legend{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px}.solmar-stats{display:grid;grid-template-columns:1fr auto;gap:8px 16px;text-align:left}.solmar-stats span:nth-child(even){text-align:right}.solmar-item{display:block;width:calc(100% - 12px);text-align:left}.solmar-item small{display:block;font-size:13px}.solmar-hud{position:absolute;inset:0;pointer-events:none}.solmar-box{background:rgba(10,14,30,.78);border-radius:6px;padding:8px 16px}.solmar-vitals{position:absolute;top:16px;left:16px;font-size:17px;width:220px}.solmar-bar{height:8px;background:#36404b;border-radius:4px;overflow:hidden;margin:4px 0 8px}.solmar-fill{height:100%;background:#2ee6c8}.solmar-armor .solmar-fill{background:#f5ead2}.solmar-clock{position:absolute;right:16px;top:16px;font-size:15px;text-align:right;max-width:230px}.solmar-objective{position:absolute;top:16px;left:50%;transform:translateX(-50%);width:calc(100% - 540px);max-width:560px;text-align:center;background:rgba(10,14,30,.55);padding:6px 14px;border-radius:6px}.solmar-banner{position:absolute;top:22%;left:50%;transform:translateX(-50%);text-align:center;max-width:calc(100% - 32px);transition:opacity .2s}.solmar-bannername{font-size:42px;font-weight:700;line-height:1.2;border-bottom:4px solid #2ee6c8;padding-bottom:8px}.solmar-bannertag{font-size:17px;margin-top:8px}.solmar-dialogue{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);width:calc(100% - 580px);max-width:640px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:16px;padding:16px;line-height:1.4;border:1px solid #2ee6c8;background:rgba(10,14,30,.92);border-radius:12px}.solmar-dialogue canvas{border-radius:6px}.solmar-role{font-size:13px;color:#b3b7bd;margin:4px 0 8px}.solmar-dialoguetext{overflow-wrap:anywhere}.solmar-notices{position:absolute;left:16px;bottom:200px;max-width:250px;display:flex;flex-direction:column;gap:8px;font-size:13px}.solmar-prompt{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);max-width:calc(100% - 460px);text-align:center}.solmar-crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px}.solmar-speed{position:absolute;bottom:16px;right:16px;width:190px;text-align:right}.solmar-speed canvas{width:190px;height:54px;display:block}.solmar-speedvalue{font-size:22px;font-weight:700}.solmar-weapon{position:absolute;bottom:16px;left:16px;font-size:16px;max-width:260px}.solmar-minimap{position:absolute;bottom:170px;right:16px;width:190px;height:145px;border:2px solid rgba(255,255,255,.4);border-radius:6px}.solmar-hurt{position:absolute;inset:0;background:radial-gradient(ellipse,transparent 45%,rgba(170,0,0,.7));pointer-events:none}.solmar-wheel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:540px;height:540px;border-radius:50%;background:rgba(10,14,30,.65);border:1px solid #2ee6c8;pointer-events:auto}.solmar-wheel button{position:absolute;width:145px;min-height:72px;font-size:13px;margin:0;transform:translate(-50%,-50%);background:#152137;color:#f5ead2;border:1px solid #2ee6c8}.solmar-wheel button.solmar-selected{background:#ffc94d;color:#0b1026}.solmar-wheel button:disabled{filter:grayscale(1)}.solmar-wheelcenter{position:absolute;top:46%;width:100%;text-align:center;pointer-events:none;font-size:13px}@media(max-width:850px){.solmar-dialogue{width:calc(100% - 440px);gap:8px}.solmar-notices{max-width:190px}.solmar-objective{top:150px;width:calc(100% - 32px)}.solmar-maplayout{grid-template-columns:60% 40%}.solmar-panel{padding:26px 34px}.solmar-wheel{transform:translate(-50%,-50%) scale(.8)}}
-`;
+export function createHUD(root) {
+  const el = document.createElement('div');
+  el.id = 'hud';
+  el.innerHTML = [
+    '<div id="hud-top-left">',
+    '  <div id="hud-mission" class="hud-panel hidden"></div>',
+    '  <div id="hud-dialogue" class="hud-panel hidden"></div>',
+    '</div>',
+    '<div id="hud-top-centre">',
+    '  <div id="hud-race" class="hud-panel hidden"></div>',
+    '</div>',
+    '<div id="hud-top-right">',
+    '  <div id="hud-cash" class="hud-panel"></div>',
+    '  <div id="hud-stars" class="hud-panel"></div>',
+    '  <div id="hud-response" class="hud-panel hidden"></div>',
+    '  <div id="hud-weapons" class="hud-panel"></div>',
+    '</div>',
+    '<div id="hud-bottom-left">',
+    '  <div id="hud-district"></div>',
+    '  <canvas id="hud-radar" width="180" height="180"></canvas>',
+    '</div>',
+    '<div id="hud-bottom-right">',
+    '  <div id="hud-vehicle" class="hud-panel"></div>',
+    '</div>',
+    '<div id="hud-bottom-centre">',
+    '  <div id="hud-radio" class="hud-panel hidden"></div>',
+    '</div>',
+    '<div id="hud-centre">',
+    '  <div id="hud-crosshair">+</div>',
+    '  <div id="hud-hitmarker" class="hidden">X</div>',
+    '  <div id="hud-chevron" class="hidden">v</div>',
+    '</div>',
+    '<div id="hud-clock" class="hud-panel"></div>',
+    '<div id="hud-pause" class="hidden">',
+    '  <div class="hud-pause-tabs"><span data-tab="map">MAP</span><span data-tab="stats">STATS</span><span data-tab="story">STORY</span><span data-tab="settings">SETTINGS</span></div>',
+    '  <div id="hud-pause-body"></div>',
+    '</div>',
+  ].join('\n');
+  root.appendChild(el);
+  return {
+    root: el,
+    mission: el.querySelector('#hud-mission'),
+    dialogue: el.querySelector('#hud-dialogue'),
+    race: el.querySelector('#hud-race'),
+    cash: el.querySelector('#hud-cash'),
+    stars: el.querySelector('#hud-stars'),
+    response: el.querySelector('#hud-response'),
+    weapons: el.querySelector('#hud-weapons'),
+    district: el.querySelector('#hud-district'),
+    radar: el.querySelector('#hud-radar'),
+    vehicle: el.querySelector('#hud-vehicle'),
+    radio: el.querySelector('#hud-radio'),
+    clock: el.querySelector('#hud-clock'),
+    crosshair: el.querySelector('#hud-crosshair'),
+    hitmarker: el.querySelector('#hud-hitmarker'),
+    chevron: el.querySelector('#hud-chevron'),
+    pause: el.querySelector('#hud-pause'),
+    pauseBody: el.querySelector('#hud-pause-body'),
+  };
+}
 
-export function createHUD(initialWorld,callbacks={}){
-  if(typeof document==='undefined')throw new Error('createHUD requires a browser document.');
-  let world=initialWorld,frame=0,screen=null,screenData={},bannerT=0,lastDistrict=null,resultT=0,selected=null,wheelHeld=false,dialogueId=null,localNotices=[];
-  const root=document.createElement('div');root.className='solmar-root';const style=document.createElement('style');style.textContent=css;root.append(style);document.body.append(root);
-  const el=(tag,cls,text,parent)=>{const n=document.createElement(tag);if(cls)n.className='solmar-'+cls;if(text!==undefined)n.textContent=text;if(parent)parent.append(n);return n;};
-  const text=(n,value)=>{value=String(value??'');if(n.textContent!==value)n.textContent=value;};
-  const call=(key,...args)=>callbacks[key]?.(...args);
-  const btn=(parent,label,fn,secondary=false)=>{const n=el('button',secondary?'secondary':'',label,parent);n.type='button';n.onclick=fn;return n;};
-  const hud=el('div','hud',undefined,root),hurt=el('div','hurt',undefined,hud);
-  const vitals=el('div','vitals solmar-box',undefined,hud);
-  const healthLabel=el('div','',undefined,vitals),health=el('div','bar',undefined,vitals),healthFill=el('div','fill',undefined,health);
-  const armorLabel=el('div','',undefined,vitals),armor=el('div','bar solmar-armor',undefined,vitals),armorFill=el('div','fill',undefined,armor);
-  const cash=el('div','',undefined,vitals),respect=el('div','',undefined,vitals),postcards=el('div','',undefined,vitals),wanted=el('div','',undefined,vitals);
-  const clock=el('div','clock solmar-box',undefined,hud),objective=el('div','objective',undefined,hud);
-  const banner=el('div','banner',undefined,hud),bannerName=el('div','bannername',undefined,banner),bannerTag=el('div','bannertag',undefined,banner);
-  banner.hidden=true;
-  const dialogue=el('div','dialogue',undefined,hud),portrait=portraitCanvas('milo',72);dialogue.append(portrait);const dialogueCopy=el('div','',undefined,dialogue),speaker=el('strong','',undefined,dialogueCopy),role=el('div','role',undefined,dialogueCopy),speech=el('div','dialoguetext',undefined,dialogueCopy);dialogue.hidden=true;
-  const notices=el('div','notices',undefined,hud),noticeNodes=Array.from({length:3},()=>el('div','box',undefined,notices));
-  const prompt=el('div','prompt solmar-box',undefined,hud),crosshair=el('div','crosshair','+',hud),weapon=el('div','weapon solmar-box',undefined,hud);
-  const mini=el('canvas','minimap',undefined,hud);mini.width=190;mini.height=145;const miniCtx=mini.getContext('2d');
-  const speed=el('div','speed solmar-box',undefined,hud),gauge=el('canvas','',undefined,speed);gauge.width=190;gauge.height=54;const gaugeCtx=gauge.getContext('2d'),speedValue=el('div','speedvalue',undefined,speed),vehicleName=el('div','small',undefined,speed),vehicleHP=el('div','small',undefined,speed);
-  const overlay=el('div','screen',undefined,root);overlay.hidden=true;let panel,mapCanvas,payoutNode;
-  const wheel=el('div','wheel',undefined,root);wheel.hidden=true;el('div','wheelcenter','Release Q to equip',wheel);
-  const wheelButtons=WEAPONS.map((w,i)=>{const angle=i*Math.PI*2/WEAPONS.length-Math.PI/2;const b=btn(wheel,w.name,()=>{if(world.player.ammo?.[w.id]||w.id==='melee')selected=w.id;});b.style.left=270+Math.cos(angle)*190+'px';b.style.top=270+Math.sin(angle)*190+'px';b.onpointerenter=()=>{if(!b.disabled)selected=w.id;};return b;});
-  wheel.addEventListener('pointermove',e=>{const r=wheel.getBoundingClientRect(),dx=e.clientX-r.left-r.width/2,dy=e.clientY-r.top-r.height/2;if(Math.hypot(dx,dy)<40)return;const index=Math.round((Math.atan2(dy,dx)+Math.PI/2+Math.PI*2)%(Math.PI*2)/(Math.PI*2)*WEAPONS.length)%WEAPONS.length;const w=WEAPONS[index];if(world.player.ammo?.[w.id]||w.id==='melee')selected=w.id;});
-  function setWheel(open){if(open&&!wheelHeld){selected=world.player.weapon;wheelHeld=true;}else if(!open&&wheelHeld){wheelHeld=false;if(selected)call('onWeaponSelect',selected);}wheel.hidden=!open||!!screen;}
-  root.ownerDocument.addEventListener('keydown',e=>{if(e.code==='KeyQ'&&!e.repeat&&!screen)setWheel(true);});
-  root.ownerDocument.addEventListener('keyup',e=>{if(e.code==='KeyQ')setWheel(false);});
-  root.ownerDocument.defaultView?.addEventListener('blur',()=>{wheelHeld=false;wheel.hidden=true;});
-  function heading(label){el('h2','',label,panel);}
-  function actions(){return el('div','actions',undefined,panel);}
-  function hideScreens(){screen=null;overlay.hidden=true;hud.hidden=false;mapCanvas=null;payoutNode=null;}
-  function closeMap(){call('onCloseMap');hideScreens();}
-  function showScreen(name,data={}){
-    const aliases={results:'complete','job-complete':'complete','mission-complete':'complete','job-blown':'failed','mission-failed':'failed',busted:'cuffed',dead:'flatlined',gameover:'flatlined',weaponWheel:'wheel'};name=aliases[name]||name;
-    if(name==='wheel'){setWheel(true);return;}
-    screen=name;screenData=data||{};resultT=0;overlay.style.background=['title','map'].includes(name)?'rgba(5,9,20,.04)':'';overlay.replaceChildren();overlay.hidden=false;hud.hidden=true;wheel.hidden=true;mapCanvas=null;payoutNode=null;
-    panel=el('div','panel'+(name==='title'?' solmar-title':name==='map'?' solmar-map':''),undefined,overlay);
-    if(name==='title'){
-      const title=el('div','',undefined,panel);el('h1','logo','SOLMAR 3D',title);el('p','centered','Streets of Gold',title);el('p','centered','A beach city, six districts, six jobs, seven weapons.',title);
-      const row=actions();btn(row,'New Game',()=>call('onNewGame'));const saved=data.saveSummary||data.summary||saveSummary(data.save||loadGame());const b=btn(row,saved?`Continue: Job ${saved.job??(saved.missionIndex||0)+1} · ${money(saved.money)} · Day ${saved.day||1}`:'Continue — No save yet',()=>call('onContinue'),true);b.disabled=!saved;
-      const card=el('div','card solmar-small',undefined,panel);el('strong','','How to Play',card);el('p','','WASD move · E enter car · Shift run · Space jump · Q weapon wheel · R reload · M map · V top-down · Esc pause',card);
-      const castRow=el('div','cast',undefined,panel);for(const c of CAST){const figure=el('figure','',undefined,castRow);figure.append(portraitCanvas(c.id,72));el('figcaption','',c.name,figure);}
-      el('p','small','A getaway driver builds his crew in a sun-soaked port city.',panel);
-    }else if(name==='pause'){
-      heading('Paused');const list=el('div','list solmar-pause',undefined,panel);
-      btn(list,'Resume',()=>{hideScreens();call('onResume');});btn(list,'City Map (M)',()=>{call('onOpenMap');showScreen('map');});btn(list,'Settings',()=>showScreen('settings'));btn(list,'Controls',()=>showScreen('controls'));
-      const abandon=btn(list,'Abandon Job',()=>{call('onAbandonJob');hideScreens();},true);abandon.disabled=!world.mission?.active;btn(list,'Quit to Title',()=>call('onQuitToTitle'),true);
-    }else if(name==='settings'){
-      heading('Settings');const list=el('div','list',undefined,panel);for(const [key,label,min,max,step] of [['masterVolume','Master volume',0,1,.01],['musicVolume','Music volume',0,1,.01],['sfxVolume','SFX volume',0,1,.01],['resolutionScale','Render resolution scale',.6,1,.05]]){const row=el('label','setting',undefined,list);const labelText=el('span','',label,row);const input=el('input','',undefined,row);input.type='range';input.min=min;input.max=max;input.step=step;input.value=world.settings?.[key]??(key==='resolutionScale'?1:.8);input.setAttribute('aria-label',label);input.oninput=()=>{text(labelText,`${label}: ${Math.round(input.value*100)}%`);call('onSettingChange',key,Number(input.value));};}el('p','small','English only',panel);const a=actions();btn(a,'Back',()=>showScreen('pause'));btn(a,'Save Game',()=>call('onSaveGame'),true);
-    }else if(name==='controls'){
-      heading('Controls');const table=el('div','table',undefined,panel);el('strong','','Key',table);el('strong','','Action',table);for(const pair of controls)for(const value of pair)el('div','small',value,table);btn(actions(),'Back',()=>showScreen('pause'));
-    }else if(name==='map'){
-      heading('Solmar City Map');const layout=el('div','maplayout',undefined,panel),left=el('div','mapleft',undefined,layout),right=el('div','mapright',undefined,layout);mapCanvas=el('canvas','mapcanvas',undefined,left);mapCanvas.width=600;mapCanvas.height=620;
-      const jobs=el('div','list',undefined,right);MISSIONS.forEach((job,i)=>{const row=el('div','job',undefined,jobs);row.append(portraitCanvas(job.giver||'rosa',32));const label=el('div','',undefined,row);el('strong','',`Chapter ${i+1}: ${job.title}`,label);el('div','',`${money(job.payout)} · ${world.mission.completed.includes(job.id)?'Complete':i<world.mission.unlocked?'Next':'Locked'}`,label);});
-      const count=world.pickups?.filter(p=>p.kind==='postcard'&&p.collected).length||0;el('div','',`Cash ${money(world.money)} · Respect Lv ${world.respectLevel}\nPostcards ${count} of 20\nProperty: ${Object.entries(world.properties||{}).filter(([,v])=>v).map(([k])=>k==='penthouse'?'Penthouse':'Safehouse').join(', ')||'None'}`,right).style.whiteSpace='pre-line';
-      el('strong','','Legend',right);const legend=el('div','legend',undefined,right);for(const item of ['Car','Police','Job','Postcard','Diner','Gun store','Respray','Safehouse','Helipad','Pier','Race'])el('div','',item,legend);btn(right,'Close (M)',closeMap);drawMap();
-    }else if(name==='interior'){
-      const interior=data.interior||INTERIORS.find(i=>i.id===(data.id||world.flags?.interior))||data;heading(interior.name||'Interior');el('p','',interior.keeperLine||'',panel).style.fontStyle='italic';const list=el('div','list',undefined,panel);for(const item of interior.menu||interior.items||[]){const b=btn(list,`${item.name} — ${money(item.price)}`,()=>call('onInteriorBuy',item.id));b.classList.add('solmar-item');el('small','',item.desc||item.description||'',b);}btn(actions(),'Leave',()=>{call('onInteriorLeave');hideScreens();},true);
-    }else if(name==='complete'){
-      const r=Object.keys(data).length?data:world.mission.results||{};screenData=r;heading('JOB COMPLETE');el('p','',r.title||'',panel);payoutNode=el('p','centered','Payout $0',panel);el('p','',`Respect gained: +${r.respect||0}`,panel);const stats=el('div','stats',undefined,panel);for(const [key,value] of [['Time',`${Math.floor((r.time||0)/60)}:${String(Math.floor((r.time||0)%60)).padStart(2,'0')}`],['Accuracy',`${Math.round((r.accuracy||0)*100)}%`],['Takedowns',r.takedowns||0],['Crashes',r.crashes||0],['Top Speed',`${Math.round((r.topSpeed||0)*3.6)} KM/H`]]){el('span','',key,stats);el('span','',String(value),stats);}const list=el('div','list',undefined,panel);el('strong','','Unlocked',list);for(const item of r.unlocks||[])el('div','',item,list);if(!r.unlocks?.length)el('div','','No new unlocks',list);btn(actions(),'Continue',()=>call('onResultsContinue'));
-    }else{
-      const label=name==='cuffed'?'CUFFED':name==='flatlined'?'FLATLINED':'JOB BLOWN';heading(label);if(name==='cuffed')el('p','','Bail $500. Weapons seized except the pistol.',panel);else if(name==='flatlined')el('p','','Hospital $300, plus 10% of cash (minimum $100, maximum $2,000). Half of your ammo is lost.',panel);else el('p','',data.reason||'The job fell apart. Try again.',panel);btn(actions(),'Retry',()=>call('onRetry'));
-    }
+export function formatCash(cash) {
+  return '$' + Math.floor(cash).toLocaleString('en-US');
+}
+
+export function starsHTML(wanted) {
+  let out = '';
+  for (let i = 1; i <= 5; i++) {
+    out += i <= wanted ? '<span class="star filled">&#9733;</span>' : '<span class="star">&#9734;</span>';
   }
-  function drawMap(){if(mapCanvas)drawCityMap(mapCanvas.getContext('2d'),world.city,world,mapCanvas.width,mapCanvas.height);}
-  function setBanner(district){const d=typeof district==='string'?(world.city?.districts||DISTRICTS).find(d=>d.id===district):district;if(!d)return;text(bannerName,d.name);text(bannerTag,d.tagline);bannerName.style.borderColor=d.accent||d.color||'#2ee6c8';banner.hidden=false;bannerT=4.5;}
-  function pushNotice(value){localNotices.push({text:String(value),age:0});localNotices=localNotices.slice(-3);}
-  function update(nextWorld,dt=0){
-    world=nextWorld||world;dt=Math.max(0,Number(dt)||0);frame++;const p=world.player,am=world.mission?.active,stage=am?.stage||am?.stages?.[am.stageIndex];
-    text(healthLabel,`Health ${Math.ceil(p.health)}`);text(armorLabel,`Armor ${Math.ceil(p.armor)}`);const hp=Math.max(0,Math.min(100,p.health)),ar=Math.max(0,Math.min(100,p.armor));if(healthFill.style.width!==hp+'%')healthFill.style.width=hp+'%';if(armorFill.style.width!==ar+'%')armorFill.style.width=ar+'%';
-    text(cash,`Cash ${money(world.money)}`);text(respect,`Respect ${world.respect} (Lv ${world.respectLevel})`);text(postcards,`Postcards ${world.pickups?.filter(p=>p.kind==='postcard'&&p.collected).length||0}/20`);text(wanted,world.wanted?`Wanted ${world.wanted} / 5`:'');
-    const hour=Math.floor(world.time||0),minute=Math.floor(((world.time||0)-hour)*60),radio=world.radio?.name||world.radio?.station?.name||world.radioStation?.name||world.radioStation||'Radio off';text(clock,`Day ${world.day} · ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}\n${({clear:'Clear',cloudy:'Cloudy',rain:'Rain',storm:'Storm'})[world.weather?.kind]||'Clear'} · ${radio}`);clock.style.whiteSpace='pre-line';
-    text(objective,am?`Job ${am.id}: ${am.data?.title||''} — ${stage?.text||''}`:world.flags?.race?`Race: checkpoint ${(world.flags.race.index||0)+1}`:world.flags?.taxi?'Solmar Cab: drop off the passenger':'Free roam — press M for map, E near a car to get in');
-    if(world.city){const id=districtAt(world.city,p.x,p.z);if(id!==lastDistrict){lastDistrict=id;setBanner(id);}}bannerT=Math.max(0,bannerT-dt);banner.style.opacity=String(Math.min(1,bannerT));banner.hidden=bannerT===0;
-    const current=world.dialogue?.current;dialogue.hidden=!current;if(current){const c=CAST.find(c=>c.id===current.speakerId)||CAST[0];if(dialogueId!==c.id){const replacement=portraitCanvas(c.id,72);portrait.getContext('2d').clearRect(0,0,72,72);portrait.getContext('2d').drawImage(replacement,0,0);dialogueId=c.id;}text(speaker,c.name);text(role,c.role);text(speech,current.text.slice(0,current.visibleChars??Math.floor(world.dialogue.charT||0)));}
-    for(const n of localNotices)n.age+=dt;localNotices=localNotices.filter(n=>n.age<4);const list=[...(world.notices||[]),...localNotices].slice(-3);noticeNodes.forEach((n,i)=>{const item=list[i];n.hidden=!item;if(item){text(n,item.text);n.style.opacity=String(Math.min(1,4-(item.age||0)));}});
-    let promptText=world.prompt||world.interactionPrompt||'';if(!promptText&&!screen){if(world.flags?.interior)promptText='Interior — Esc to exit';else if(p.onFoot){const door=world.city?.landmarks.find(l=>['diner','gunstore'].includes(l.kind)&&Math.hypot(l.x-p.x,l.z-p.z)<8);if(door)promptText=`E — Enter ${door.name}`;else if(world.vehicles?.some(v=>Math.hypot(v.x-p.x,v.z-p.z)<5))promptText='E — Enter vehicle';}else promptText='E — Exit vehicle';}text(prompt,promptText);prompt.hidden=!promptText;crosshair.hidden=!p.aiming;
-    const w=WEAPONS.find(w=>w.id===p.weapon)||WEAPONS[0],ammo=p.ammo?.[w.id];text(weapon,`${w.name} · ${w.id==='melee'?'Melee':`${ammo?.mag||0} / ${ammo?.reserve||0}`}`);
-    const v=world.vehicles?.find(v=>v.id===p.vehicleId);speed.hidden=!v;if(v){const kmh=Math.abs(v.speed||0)*3.6;const def=VEHICLE_TYPES.find(t=>t.id===v.type);text(speedValue,`${Math.round(kmh)} KM/H · ${v.speed<-.1?'R':Math.min(6,1+Math.floor(kmh/35))}`);text(vehicleName,def?.name||v.type);text(vehicleHP,`Vehicle HP ${Math.ceil(v.health)}`);gaugeCtx.clearRect(0,0,190,54);gaugeCtx.lineWidth=4;gaugeCtx.strokeStyle='#f5ead2';gaugeCtx.beginPath();gaugeCtx.arc(95,52,44,Math.PI,Math.PI*2);gaugeCtx.stroke();const a=Math.PI+Math.min(1,kmh/240)*Math.PI;gaugeCtx.strokeStyle='#ffc94d';gaugeCtx.beginPath();gaugeCtx.moveTo(95,52);gaugeCtx.lineTo(95+Math.cos(a)*40,52+Math.sin(a)*40);gaugeCtx.stroke();}
-    hurt.style.opacity=String((1-hp/100)*.7);if(frame%2===0&&miniCtx)drawMinimap(miniCtx,world.city,world,190,145);
-    if(wheelHeld){wheelButtons.forEach((b,i)=>{const d=WEAPONS[i],a=p.ammo?.[d.id],owned=!!a||d.id==='melee';b.disabled=!owned;text(b,`${d.name}\n${owned?d.id==='melee'?'Melee':`${a.mag} / ${a.reserve}`:`Locked · ${money(d.price)}`}`);b.style.whiteSpace='pre-line';b.classList.toggle('solmar-selected',selected===d.id);});}
-    if(screen==='complete'&&payoutNode){resultT+=dt;text(payoutNode,`Payout ${money((screenData.payout||0)*Math.min(1,resultT/1.5))}`);}if(screen==='map'&&frame%2===0)drawMap();
+  return out;
+}
+
+export function updateHUD(hud, s) {
+  hud.cash.innerHTML = '<span class="cash">' + formatCash(s.cash) + '</span>';
+  hud.stars.innerHTML = starsHTML(s.wanted);
+  if (s.wanted > 0 && s.response && s.response.length > 0) {
+    hud.response.classList.remove('hidden');
+    hud.response.innerHTML =
+      '<div class="panel-title">PCPD RESPONSE</div>' +
+      s.response
+        .map((u) => '<div class="resp-row"><span>' + u.callSign + '</span><span>' + u.distance + 'm</span><span class="resp-state">' + u.state + '</span></div>')
+        .join('');
+  } else {
+    hud.response.classList.add('hidden');
   }
-  update(world,0);
-  return {root,update,showScreen,hideScreens,setBanner,pushNotice,version:'3.0.0'};
+  const slots = ownedSlots(s.weaponsOwned || []);
+  hud.weapons.innerHTML = slots
+    .map((slot, i) => {
+      const active = s.activeWeapon && slot.weapon && slot.weapon.id === s.activeWeapon;
+      const ammo = slot.weapon ? ' ' + (s.ammo && s.ammo[slot.weapon.id] != null ? s.ammo[slot.weapon.id] : slot.weapon.magazine) + '/' + (s.reserve && s.reserve[slot.weapon.id] != null ? s.reserve[slot.weapon.id] : slot.weapon.reserve) : '';
+      const label = slot.locked ? 'LOCKED' : slot.weapon.name.toUpperCase() + ammo;
+      return '<div class="wslot' + (active ? ' active' : '') + (slot.locked ? ' locked' : '') + '"><span class="wslot-num">' + (i + 1) + '</span><span class="wslot-name">' + label + '</span></div>';
+    })
+    .join('');
+  if (s.race) {
+    const r = s.race;
+    hud.race.classList.remove('hidden');
+    hud.race.innerHTML =
+      '<div class="panel-title">NEON MILE &middot; RACE</div>' +
+      '<div class="race-board"><span>' + r.place + 'th / ' + r.of + '</span><span>Lap ' + r.lap + '/' + r.laps + '</span><span>CP ' + r.checkpoint + '/' + r.checkpoints + '</span><span>' + r.time + 's</span><span>Gap +' + r.gap + 's</span></div>' +
+      '<div class="race-standings">' +
+      r.standings
+        .map((st) => '<div class="race-row' + (st.isPlayer ? ' race-player' : '') + '"><span>' + st.place + '</span><span>' + st.name + '</span></div>')
+        .join('') +
+      '</div>';
+  } else {
+    hud.race.classList.add('hidden');
+  }
+  if (s.mission && s.mission.active) {
+    hud.mission.classList.remove('hidden');
+    const m = s.mission;
+    hud.mission.innerHTML =
+      '<div class="mission-name">' + m.name + '</div>' +
+      '<div class="mission-stage">' + m.stageName + (m.timer > 0 ? ' &middot; ' + m.timer + 's' : '') + '</div>' +
+      '<div class="mission-obj">' + m.objective + '</div>' +
+      '<div class="mission-prog">' + m.progress + ' / ' + m.total + '</div>';
+  } else {
+    hud.mission.classList.add('hidden');
+  }
+  if (s.dialogue) {
+    hud.dialogue.classList.remove('hidden');
+    // P1-2 (2026-11-19): dialogue box renders the speaker portrait.
+    // s.dialogue.portrait comes from dialogue.js (stage dialogue.portrait
+    // or giverPortrait, default 'kane'); drawPortrait draws the 128px
+    // canvas, CSS shows it at 64px beside the speaker + line.
+    hud.dialogue.innerHTML =
+      '<canvas class="dlg-portrait" width="128" height="128"></canvas>' +
+      '<div class="dlg-text"><div class="dlg-speaker">' + s.dialogue.speaker + '</div>' +
+      '<div class="dlg-line">' + s.dialogue.line + '</div></div>';
+    const portraitCanvas = hud.dialogue.querySelector('.dlg-portrait');
+    if (portraitCanvas) drawPortrait(portraitCanvas, s.dialogue.portrait || 'kane');
+  } else {
+    hud.dialogue.classList.add('hidden');
+  }
+  hud.district.innerHTML =
+    '<div class="district-name">' + (s.districtName || 'Solmar') + '</div>' +
+    '<div class="district-tag">' + (s.districtTag || '') + '</div>';
+  if (s.vehicle) {
+    const v = s.vehicle;
+    const cond = Math.max(0, Math.min(100, v.condition));
+    hud.vehicle.innerHTML =
+      '<div class="veh-name">' + v.name + '</div>' +
+      '<div class="veh-speed">' + Math.round(Math.abs(v.speed) * 3.6) + ' km/h &middot; Gear ' + v.gear + '</div>' +
+      '<div class="veh-cond"><div class="veh-cond-fill" style="width:' + cond + '%"></div></div>';
+  } else if (s.activeWeapon) {
+    hud.vehicle.innerHTML =
+      '<div class="veh-name">' + (s.activeWeaponName || 'On foot') + '</div>' +
+      '<div class="veh-speed">' + (s.ammoText || '') + '</div>';
+  } else {
+    hud.vehicle.innerHTML = '<div class="veh-name">On foot</div>';
+  }
+  if (s.radio && s.radio.visible) {
+    hud.radio.classList.remove('hidden');
+    hud.radio.innerHTML =
+      '<div class="radio-station">' + s.radio.station + ' ' + s.radio.freq + '</div>' +
+      '<div class="radio-track">' + s.radio.track + ' &mdash; ' + s.radio.artist + '</div>';
+  } else {
+    hud.radio.classList.add('hidden');
+  }
+  const hh = String(Math.floor(s.hour || 18)).padStart(2, '0');
+  const mm = String(Math.floor(((s.hour || 18) % 1) * 60)).padStart(2, '0');
+  hud.clock.innerHTML = hh + ':' + mm + ' &middot; Day ' + (s.day || 1);
+  hud.crosshair.style.display = s.onFoot ? 'block' : 'none';
+  if (s.hitMarker && s.hitMarker.show) {
+    hud.hitmarker.classList.remove('hidden');
+    hud.hitmarker.classList.toggle('kill', !!s.hitMarker.killed);
+  } else {
+    hud.hitmarker.classList.add('hidden');
+  }
+  if (s.chevron && s.chevron.visible) {
+    hud.chevron.classList.remove('hidden');
+  } else {
+    hud.chevron.classList.add('hidden');
+  }
+  return hud;
+}
+
+export function showPause(hud, tab, bodyHTML) {
+  hud.pause.classList.remove('hidden');
+  const tabs = hud.pause.querySelectorAll('.hud-pause-tabs span');
+  tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+  hud.pauseBody.innerHTML = bodyHTML;
+}
+
+export function hidePause(hud) {
+  hud.pause.classList.add('hidden');
+}
+
+export function pauseMapHTML(world, missions) {
+  const rows = missions
+    .map((m) => {
+      const done = world.missionsDone.includes(m.id);
+      const active = world.mission && world.mission.id === m.id;
+      const status = done ? 'DONE' : active ? 'ACTIVE' : 'LOCKED';
+      return '<div class="map-mission-row"><span>' + m.name + '</span><span>$' + m.payout.toLocaleString('en-US') + '</span><span class="map-status-' + status.toLowerCase() + '">' + status + '</span></div>';
+    })
+    .join('');
+  const legend = ['Player', 'Mission', 'Police', 'Vulture', 'Race gate', 'Marina', 'Bank', 'Diner', 'Penthouse', 'Beach', 'Ferry'];
+  return (
+    '<div class="pause-map-wrap">' +
+    '<canvas id="pause-map-canvas" width="640" height="480"></canvas>' +
+    '<div class="pause-map-side">' +
+    '<div class="panel-title">JOBS</div>' + rows +
+    '<div class="panel-title" style="margin-top:12px">LEGEND</div>' +
+    legend.map((l) => '<div class="map-legend-row">◆ ' + l + '</div>').join('') +
+    '<div class="map-meta">Cash ' + formatCash(world.cash) + ' &middot; Respect ' + (world.respectName || '') + ' &middot; Postcards ' + world.postcards.length + '/20 &middot; Properties: ' + (world.owned.properties.join(', ') || 'none') + '</div>' +
+    '</div></div>'
+  );
+}
+
+export function pauseStatsHTML(stats, percent) {
+  return (
+    '<div class="pause-complete">' + percent + '% COMPLETE</div>' +
+    '<div class="pause-stats">' +
+    '<div>Distance driven: ' + Math.round((stats.distanceDriven || 0) / 1000) + ' km</div>' +
+    '<div>Cars stolen: ' + (stats.carsStolen || 0) + '</div>' +
+    '<div>Pursuits escaped: ' + (stats.pursuitsEscaped || 0) + '</div>' +
+    '<div>Races won: ' + (stats.racesWon || 0) + '</div>' +
+    '<div>Taxi fares: ' + (stats.taxiFares || 0) + '</div>' +
+    '<div>Kills: ' + (stats.kills || 0) + '</div>' +
+    '<div>Shots: ' + (stats.shotsHit || 0) + ' / ' + (stats.shotsFired || 0) + '</div>' +
+    '</div>'
+  );
 }
