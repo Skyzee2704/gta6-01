@@ -8,9 +8,18 @@
 // the world twice with the autopilot, draw, update the HUD and the minimap,
 // and screenshot. ffmpeg assembles the frames at 30 fps.
 //
-// The mp4 lives OUTSIDE the repo (video/ is gitignored): the dossier
-// carries screenshots, not video. 360 frames, ~12 s, mission 6 escape:
-// the coupe flees east along Marina Boulevard with a 4-star pursuit.
+// Frames are captured with canvas.toDataURL: CDP screenshots of the
+// composited page take ~10-15 s/frame in this headless SwiftShader setup
+// (compositor BeginFrame stall; --run-all-compositor-stages-before-draw +
+// --disable-frame-rate-limit did not fix it, the probe run even timed out
+// on Runtime.evaluate), so a 360-frame video would take over an hour.
+// The price: the video shows the 3D canvas only, no DOM HUD — the HUD is
+// visible in the four screenshots and in the playable Pages build.
+// FIX 2026-11-20: the first take had the player ON FOOT (loadStaging does
+// not put the player in a car — the coupe sits parked at 330,400) and no
+// pursuit in frame (police freeze during missions). The driver now enters
+// the coupe stageCover-style and tracks one cruiser + the heli relative
+// to the player every frame, so the escape reads as an escape.
 import { freePort, startServer, launchBrowser, openGame, stop } from './browser.mjs';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -48,6 +57,14 @@ try {
     w.loadStaging();
     // Four stars: the pursuit is the video.
     w.state.player.wanted = 4;
+    // loadStaging leaves the player ON FOOT (coupe parked at 330,400):
+    // enter it stageCover-style, or the "escape" is a man running.
+    const coupe = w.state.vehicles.find((v) => v.id === 'coupe');
+    coupe.x = 330; coupe.z = 396; coupe.heading = Math.PI / 2;
+    w.state.player.x = 330; w.state.player.z = 396;
+    w.state.player.heading = Math.PI / 2;
+    w.state.player.onFoot = false; w.state.player.vehicle = coupe;
+    coupe.driver = w.state.player; coupe.parked = false;
     return true;
   })()`);
 
@@ -93,6 +110,21 @@ try {
         const input = shots.autopilotInput(state, nx, nz);
         w.step(STEP, input);
       }
+      // The pursuit freezes during missions, so track one cruiser + the
+      // heli relative to the player every frame, stageCover-style, or the
+      // escape drives down an empty road.
+      const h = p.heading;
+      const fx = Math.sin(h), fz = Math.cos(h), rx = -Math.cos(h), rz = Math.sin(h);
+      if (state.police[0]) {
+        const cop = state.police[0];
+        cop.x = p.x - fx * 8 + rx * 6;
+        cop.z = p.z - fz * 8 + rz * 6;
+        cop.heading = h; cop.state = 'RAMMING'; cop.onFoot = false;
+        cop.carX = cop.x; cop.carZ = cop.z; cop.carHeading = h;
+      }
+      state.policeHeli.x = p.x + fx * 35 + rx * 12;
+      state.policeHeli.z = p.z + fz * 35 + rz * 12;
+      state.policeHeli.y = 18;
       renderer.draw(state, 'play');
       hudMod.updateHud(hud, state, STEP);
       mapMod.drawMinimap(minimap, state, mapMod.minimapBlips(state));

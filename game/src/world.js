@@ -2,6 +2,9 @@
 // browser in it. The renderer reads this state; the tools run it headless.
 // Nothing here allocates after createWorld returns, and nothing reads the
 // clock except the elapsed counter — the same seed always plays the same.
+// One step is 1/60 s: weather, wanted, police, movement, traffic, crowds,
+// collisions, shooting, missions, dialogue, taxi fares and postcards, in
+// that order, every frame.
 import { STEP, START_HOUR, WORLD } from './config.js';
 import { createRandom, clamp, dist2d, wrapAngle } from './random.js';
 import { generateCity, districtAt, onLand } from './city.js';
@@ -13,7 +16,7 @@ import { createHeli, stepHeli, stepPoliceHeli } from './aircraft.js';
 import { createPoliceUnit, stepPolice, spawnUnit, wantedUnitCount, decayWanted, addWanted } from './police.js';
 import { maintainCrowd, stepPeds } from './npc.js';
 import { maintainTraffic, stepTraffic } from './traffic.js';
-import { createMissionState, startMission, stepMission, nextMission, completionPercent } from './missions.js';
+import { createMissionState, startMission, stepMission, nextMission, completionPercent, missionById } from './missions.js';
 import { createEconomy, payMission } from './economy.js';
 import { createWeather, stepWeather, clockText } from './weather.js';
 import { createDialogue, queueMissionLines, stepDialogue } from './dialogue.js';
@@ -85,6 +88,9 @@ function resetWorld(state, seed) {
   for (const key of Object.keys(fresh)) state[key] = fresh[key];
 }
 
+/** Load the mid-game staging save into a live world: cash, respect,
+ *  missions done, mission 6 active, the rifle in hand, 8 postcards
+ *  found, the penthouse owned. The numbers are the save's, not the HUD's. */
 function loadStagingSave(state) {
   const save = stagingSave();
   state.economy.cash = save.cash;
@@ -155,6 +161,9 @@ function stepWorld(state, dt, input) {
   // Movement: on foot, in a car, on a boat, or in the helicopter.
   if (player.vehicle && player.vehicle.id === 'heli') {
     stepHeli(player.vehicle, { steer: input.steer || 0, throttle: input.forward ? 1 : 0, climb: (input.climbUp ? 1 : 0) - (input.climbDown ? 1 : 0) }, dt);
+    player.x = player.vehicle.x;
+    player.z = player.vehicle.z;
+    player.heading = player.vehicle.heading;
   } else if (player.vehicle) {
     const ox = player.vehicle.x;
     const oz = player.vehicle.z;
@@ -247,18 +256,18 @@ function stepWorld(state, dt, input) {
   } else if (state.loadout.cooldown > 0) state.loadout.cooldown -= dt;
   if (state.loadout.muzzleFlash > 0) state.loadout.muzzleFlash -= dt;
 
-  // Missions advance; finishing one pays out.
+  // Missions advance; finishing one pays out from the mission's own table.
   if (inMission) {
     const result = stepMission(state.missions, state, dt);
     if (result === 'complete') {
       const done = state.missions.completed[state.missions.completed.length - 1];
-      // Pay the finished mission's payout and respect now.
-      const def = [1200, 2600, 4200, 6000, 9500, 15000][done - 1] || 0;
-      const rep = [220, 320, 420, 520, 650, 900][done - 1] || 0;
-      payMission(state.economy, def, rep);
+      const def = missionById(done);
+      const payout = def ? def.payout : 0;
+      const rep = def ? def.respect : 0;
+      payMission(state.economy, payout, rep);
       player.money = state.economy.cash;
       state.stats.missionsDone = state.missions.completed.length;
-      state.notices.push(`Mission complete: +$${def}`);
+      state.notices.push(`Mission complete: +$${payout}`);
       events |= EVENT_MISSION_COMPLETE;
     }
   }

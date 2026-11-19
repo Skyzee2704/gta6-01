@@ -1,63 +1,87 @@
-// A small seeded random number generator (mulberry32): the same seed gives the
-// same city, the same traffic and the same screenshot, which is what makes the
-// staged scenes repeatable. Nothing here touches the browser or the clock.
+// Seeded randomness for SOLMAR: one seed, one city, one traffic pattern,
+// one screenshot. mulberry32 is tiny, fast and deterministic, so the staged
+// shots repeat byte for byte and the headless checks can replay a world
+// exactly. Nothing in this file touches the browser, the clock or the disk.
 export function createRandom(seed) {
-  let a = seed | 0;
-  return function random() {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  let state = (seed | 0) >>> 0;
+  return function nextRandom() {
+    state = (state + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-/** A whole number from min to max, inclusive, from the seeded stream. */
+/** Pick a whole number between min and max, both ends included. */
 export function intBetween(random, min, max) {
-  return min + Math.floor(random() * (max - min + 1));
+  const span = max - min + 1;
+  return min + Math.floor(random() * span);
 }
 
-/** A real number between min and max, from the seeded stream. */
+/** Pick a real number anywhere from min up to max. */
 export function floatBetween(random, min, max) {
   return min + random() * (max - min);
 }
 
-/** One element of a list, picked by the seeded stream. */
+/** Return one element of a list, chosen by the seeded stream. */
 export function pick(random, list) {
+  if (!list || list.length === 0) return undefined;
   return list[Math.floor(random() * list.length)];
 }
 
-/** A shuffled copy of a list, using the seeded stream. */
+/** Return a shuffled copy of a list, leaving the original untouched. */
 export function shuffled(random, list) {
   const out = list.slice();
   for (let i = out.length - 1; i > 0; i -= 1) {
     const j = Math.floor(random() * (i + 1));
-    const tmp = out[i];
+    const held = out[i];
     out[i] = out[j];
-    out[j] = tmp;
+    out[j] = held;
   }
   return out;
 }
 
-/** Clamp a value into a range. */
+/** Hold a value inside [min, max]; values outside are pulled to the edge. */
 export function clamp(value, min, max) {
-  return value < min ? min : value > max ? max : value;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
 }
 
-/** Linear interpolation between two values. */
+/** Slide between a and b by fraction t (0 gives a, 1 gives b). */
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-/** Wrap an angle into the -PI..PI range. */
-export function wrapAngle(angle) {
-  while (angle > Math.PI) angle -= Math.PI * 2;
-  while (angle < -Math.PI) angle += Math.PI * 2;
-  return angle;
+/** Smoothstep: like lerp, but eased at both ends so motion starts soft. */
+export function smoothstep(a, b, t) {
+  const clamped = clamp((t - a) / (b - a), 0, 1);
+  return clamped * clamped * (3 - 2 * clamped);
 }
 
-/** Distance between two points on the ground plane. */
+/** Fold an angle into the -PI..PI range so heading differences stay small. */
+export function wrapAngle(angle) {
+  let a = angle;
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/** Straight-line distance between two points on the ground plane. */
 export function dist2d(ax, az, bx, bz) {
   const dx = ax - bx;
   const dz = az - bz;
   return Math.sqrt(dx * dx + dz * dz);
+}
+
+/** Squared ground distance — cheaper when only a comparison is needed. */
+export function dist2dSquared(ax, az, bx, bz) {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return dx * dx + dz * dz;
+}
+
+/** True when two ground points sit within radius of each other. */
+export function withinRadius(ax, az, bx, bz, radius) {
+  return dist2dSquared(ax, az, bx, bz) <= radius * radius;
 }

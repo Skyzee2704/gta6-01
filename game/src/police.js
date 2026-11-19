@@ -1,13 +1,15 @@
 // The PCPD: wanted stars, response units, roadblocks and the helicopter.
 // Officers spawn far away on the road graph and drive in — they never
 // teleport into view. At wanted 1 they walk up to arrest; at wanted 2 and
-// above they get out of the cruiser and shoot in bursts. Never during a mission.
+// above they get out of the cruiser and shoot in bursts. Never during a
+// mission: a story job is the player's time, not the police's.
 import { WANTED } from './config.js';
 import { dist2d, wrapAngle } from './random.js';
 
 export const POLICE_STATES = ['PURSUIT', 'RAMMING', 'ROADBLOCK', 'SPOTLIGHT', 'SEARCHING', 'ON FOOT'];
 
-/** Response list rows for the HUD: call sign, distance, state. */
+/** Response list rows for the HUD: call sign, distance, state. The list
+ *  is what makes four stars feel like four stars instead of a number. */
 export function responseList(units, player) {
   return units.map((u) => ({
     call: u.call,
@@ -26,7 +28,8 @@ export function createPoliceUnit(id, x, z, kind) {
   };
 }
 
-/** Spawn a unit far away on a road, driving in along the road graph. */
+/** Spawn a unit far away on a road, driving in along the road graph.
+ *  120–180 m out: the player hears the siren before seeing the lights. */
 export function spawnUnit(units, id, player, roads, random) {
   const angle = random() * Math.PI * 2;
   const dist = 120 + random() * 60;
@@ -74,7 +77,7 @@ export function stepPolice(units, player, wanted, dt, inMission, random) {
         if (unit.burstLeft > 0) {
           unit.burstLeft -= 1;
           events.shotsFired += 1;
-          if (Math.random() < 0.3) player.health = Math.max(0, player.health - 4);
+          if (random() < 0.3) player.health = Math.max(0, player.health - 4);
         }
       }
       continue;
@@ -103,7 +106,8 @@ export function stepPolice(units, player, wanted, dt, inMission, random) {
   return events;
 }
 
-/** Wanted decays when the player stays out of sight for a while. */
+/** Wanted decays when the player stays out of sight for a while. Seen
+ *  resets the timer; unseen for 26 seconds drops one star. */
 export function decayWanted(player, dt, seen) {
   if (player.wanted <= 0) return 0;
   if (seen) {
@@ -123,4 +127,11 @@ export function addWanted(player, stars) {
   player.wanted = Math.min(WANTED.max, player.wanted + stars);
   player.wantedTimer = 0;
   return player.wanted;
+}
+
+/** Drop wanted to zero: the player got away clean, or the chase ended. */
+export function clearWanted(player) {
+  player.wanted = 0;
+  player.wantedTimer = 0;
+  return 0;
 }

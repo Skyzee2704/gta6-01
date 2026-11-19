@@ -1,2 +1,6 @@
-video/
+node_modules/
+out/
+output/
 .shots-tmp/
+*.log
+.DS_Store

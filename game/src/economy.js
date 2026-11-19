@@ -1,10 +1,13 @@
 // Money, respect and property. Cash comes from missions, taxi fares and
 // the penthouse income; respect is a named rank that grows with every job.
+// Every dollar in and out is recorded in earned and spent, so the pause
+// screen can show a lifetime ledger instead of a single number.
 import { ECONOMY } from './config.js';
 import { respectName } from './data.js';
 
 export { respectName };
 
+/** A fresh wallet: $250, no respect, no property, day one. */
 export function createEconomy() {
   return { cash: ECONOMY.startCash, respect: 0, penthouse: false, garage: false, day: 1, earned: 0, spent: 0 };
 }
@@ -17,7 +20,8 @@ export function payMission(economy, payout, respect) {
   return economy;
 }
 
-/** Spend cash when the player can afford it. Returns true on sale. */
+/** Spend cash when the player can afford it. Returns true on sale, false
+ *  when the wallet is short — and never lets the balance go negative. */
 export function spend(economy, amount) {
   if (economy.cash < amount) return false;
   economy.cash -= amount;
@@ -57,4 +61,9 @@ export function buyGarage(economy) {
 /** The player's current respect rank, in plain English. */
 export function rank(economy) {
   return respectName(economy.respect);
+}
+
+/** Cash text for the HUD: "$12,950", with the thousands separator. */
+export function cashText(cash) {
+  return `$${Math.floor(cash).toLocaleString('en-US')}`;
 }

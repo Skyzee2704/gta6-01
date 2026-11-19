@@ -1,13 +1,17 @@
 // Traffic: civilian cars that drive the road graph, brake for obstacles,
 // and keep the streets busy. Variety is the point — the road shows many
-// different cars, never a parade of the same sedan.
+// different cars, never a parade of the same sedan. Traffic spawns on a
+// road at least 45 m from the player, so no car pops into view, and it
+// despawns past 150 m, so the ring around the player stays fresh.
 import { vehicleById } from './data.js';
 import { createVehicle, stepVehicle } from './vehicles.js';
 import { createRandom, pick, dist2d } from './random.js';
 
 const TRAFFIC_DEFS = ['sedan', 'taxi', 'pickup', 'van', 'coupe', 'bus', 'muscle', 'scooter', 'bike', 'limo'];
 
-/** A traffic car, following one road segment at a time. */
+/** A traffic car, following one road segment at a time. Each one gets its
+ *  own cruise speed and its own lane offset, so a line of traffic does
+ *  not drive in lockstep. */
 export function createTrafficCar(id, x, z, heading, random) {
   const def = pick(random, TRAFFIC_DEFS);
   const car = createVehicle(def, x, z, heading);
@@ -38,7 +42,9 @@ export function maintainTraffic(cars, player, roads, random, target) {
   return cars;
 }
 
-/** One traffic step: cruise, brake when something is ahead, stay on the road. */
+/** One traffic step: cruise, brake when something is ahead, stay on the
+ *  road. A car that reaches the edge of the round map turns around
+ *  instead of driving into the sea. */
 export function stepTraffic(cars, dt, obstacles) {
   for (const car of cars) {
     let throttle = 0.55;
@@ -62,10 +68,30 @@ export function stepTraffic(cars, dt, obstacles) {
   return cars;
 }
 
+/** How many traffic cars are on the road right now. */
 export function trafficCount(cars) {
   return cars.length;
 }
 
+/** How many different vehicle types are in traffic — the variety the
+ *  street-race shot and the cover both need to read as a real city. */
 export function trafficVariety(cars) {
   return new Set(cars.map((c) => c.id.split('-')[0] + c.def.id)).size;
+}
+
+/** A seeded traffic set for a fresh world, so the first frame already
+ *  has cars on the road instead of an empty street filling in. */
+export function seedTraffic(player, roads, seed, count) {
+  const random = createRandom(seed);
+  const cars = [];
+  for (let i = 0; i < count; i += 1) {
+    const road = roads[Math.floor(random() * roads.length)];
+    const t = random();
+    const x = road.x1 + (road.x2 - road.x1) * t;
+    const z = road.z1 + (road.z2 - road.z1) * t;
+    if (dist2d(x, z, player.x, player.z) < 45) continue;
+    const heading = Math.atan2(road.x2 - road.x1, road.z2 - road.z1);
+    cars.push(createTrafficCar(cars.length, x, z, heading, random));
+  }
+  return cars;
 }

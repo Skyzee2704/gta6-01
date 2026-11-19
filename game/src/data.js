@@ -1,11 +1,13 @@
 // Data, not code: every table the sim reads. Missions, districts, vehicles,
 // weapons, radio playlists, respect tiers and prices all live here, so tuning
-// never means editing logic. All names are original to Solmar.
+// never means editing logic. All names are original to Solmar — nothing here
+// is borrowed from a commercial game, a film or another entry.
 import { DISTRICTS } from './config.js';
 
 export { DISTRICTS };
 
-/** Respect tiers: a named rank for every band of respect points. */
+/** Respect tiers: a named rank for every band of respect points. The HUD
+ *  shows the name, not the number, so progress reads like a promotion. */
 export const RESPECT_TIERS = [
   { min: 0, name: 'Nobody' },
   { min: 250, name: 'Small Time' },
@@ -21,7 +23,9 @@ export function respectName(respect) {
   return name;
 }
 
-/** The six story jobs. Each one is data the mission engine walks through. */
+/** The six story jobs. Each one is data the mission engine walks through:
+ *  a drive step, a talk step, a collect step, a fight step or a boat step,
+ *  with a map position the autopilot and the gold marker can both use. */
 export const MISSIONS = [
   {
     id: 1, name: 'First Wheels', giver: 'Kane', payout: 1200, respect: 220,
@@ -79,7 +83,9 @@ export const MISSIONS = [
   },
 ];
 
-/** Driveable vehicles: 8 cars, 2 bikes, a bus, a helicopter and 2 boats. */
+/** Driveable vehicles: 8 cars, 2 bikes, a bus, a helicopter and 2 boats.
+ *  topSpeed is m/s, grip near 1 is planted, near 0.8 slides. Every one of
+ *  them shows up in traffic, so the road never looks like a car park. */
 export const VEHICLES = [
   { id: 'coupe', name: 'Solmar Coupe', kind: 'car', topSpeed: 42, accel: 16, grip: 0.94, seats: 2, price: 9000, color: '#c22e2e' },
   { id: 'sedan', name: 'Marina Sedan', kind: 'car', topSpeed: 34, accel: 12, grip: 0.96, seats: 4, price: 4200, color: '#2e5fa3' },
@@ -101,7 +107,8 @@ export function vehicleById(id) {
   return VEHICLES.find((v) => v.id === id) || VEHICLES[0];
 }
 
-/** Seven weapons. The HUD bar shows five slots; fists are always with you. */
+/** Seven weapons. The HUD bar shows five slots; fists and the bat are
+ *  always with you and never take a slot. The VK-47 is the workhorse. */
 export const WEAPONS = [
   { id: 'fists', name: 'Fists', slot: -1, damage: 12, range: 1.6, rate: 2.2, mag: 0, reserve: 0, price: 0, auto: false },
   { id: 'pistol', name: 'P9 Pistol', slot: 0, damage: 22, range: 42, rate: 3.5, mag: 12, reserve: 60, price: 350, auto: false },
@@ -116,7 +123,8 @@ export function weaponById(id) {
   return WEAPONS.find((w) => w.id === id) || WEAPONS[0];
 }
 
-/** Four radio stations. Each has its own drum pattern, tempo and playlist. */
+/** Four radio stations. Each has its own drum pattern, tempo and playlist,
+ *  so switching stations changes the feel of the drive, not just the name. */
 export const RADIO = [
   {
     id: 'golden', name: 'SOLMAR 88.5', title: 'Golden Wave', freq: '88.5',
@@ -126,6 +134,7 @@ export const RADIO = [
       { title: 'Gold Hour Drive', artist: 'Luna Reyes' },
       { title: 'Neon Hearts', artist: 'Coastline' },
       { title: 'Slow Summer', artist: 'Marina Blue' },
+      { title: 'Harbor Lights', artist: 'Luna Reyes' },
     ],
   },
   {
@@ -136,6 +145,7 @@ export const RADIO = [
       { title: 'Fuego en la Calle', artist: 'Rosa Luz' },
       { title: 'Marina Nights', artist: 'Los Dorados' },
       { title: 'Ritmo de Oro', artist: 'DJ Caliente' },
+      { title: 'Calle Dorada', artist: 'Rosa Luz' },
     ],
   },
   {
@@ -146,6 +156,7 @@ export const RADIO = [
       { title: 'Asphalt Kings', artist: 'Highway Sons' },
       { title: 'Midnight Engine', artist: 'The Vultures' },
       { title: 'Redline', artist: 'Chrome Hearts' },
+      { title: 'Neon Mile Run', artist: 'Highway Sons' },
     ],
   },
   {
@@ -156,11 +167,13 @@ export const RADIO = [
       { title: 'The Harbor Report', artist: 'Marcus Vale' },
       { title: 'City Hall Hour', artist: 'Dana Cole' },
       { title: 'Night Desk', artist: 'Marcus Vale' },
+      { title: 'The Kane Tapes', artist: 'Dana Cole' },
     ],
   },
 ];
 
-/** The cast, for title, dialogue portraits and the race board. */
+/** The cast, for title, dialogue portraits and the race board. Six faces,
+ *  six colours, six jobs in the story. */
 export const CAST = [
   { id: 'milo', name: 'Milo', role: 'You — driver, thief, future king', color: '#e8b400', skin: '#c98d5f', hair: '#1c1c22', shirt: '#2e5fa3' },
   { id: 'kane', name: 'Kane', role: 'Fixer — plans the jobs', color: '#8a8578', skin: '#8a5a3b', hair: '#3a3a3a', shirt: '#3a3f4a' },
@@ -170,7 +183,8 @@ export const CAST = [
   { id: 'mayor', name: 'Mayor Sol', role: 'Owns the marina, owes everyone', color: '#ffb02e', skin: '#d9a066', hair: '#e8e8e8', shirt: '#f0f0e8' },
 ];
 
-/** Twenty postcard tapes hidden around the island. */
+/** Twenty postcard tapes hidden around the island. Eight of them are
+ *  already found in the staging save the screenshots load. */
 export const POSTCARDS = [
   { id: 1, x: 330, y: 404, spot: 'Marina pier' }, { id: 2, x: 260, y: 380, spot: 'Beach umbrellas' },
   { id: 3, x: 448, y: 252, spot: 'Neon Mile sign' }, { id: 4, x: 320, y: 210, spot: 'Bank Tower steps' },
@@ -184,7 +198,8 @@ export const POSTCARDS = [
   { id: 19, x: 230, y: 200, spot: 'Old cinema' }, { id: 20, x: 410, y: 380, spot: 'Yacht club' },
 ];
 
-/** Interiors the player can walk into. */
+/** Interiors the player can walk into: two restaurants, a bar, a gun shop,
+ *  the penthouse and the safehouse. The diner is where mission 2 starts. */
 export const INTERIORS = [
   { id: 'diner', name: 'Neon Mile Diner', x: 452, y: 246, kind: 'restaurant', desc: 'Coffee, pie and the best gossip in Solmar.' },
   { id: 'bar', name: 'Old Town Bar', x: 205, y: 135, kind: 'bar', desc: 'Cheap drinks, cheaper pool, Kane holds court here.' },
@@ -194,9 +209,18 @@ export const INTERIORS = [
   { id: 'safehouse', name: 'Old Town Safehouse', x: 210, y: 150, kind: 'home', desc: 'A bed, a garage and nobody asking questions.' },
 ];
 
-/** Street race routes, one per district loop. */
+/** Street race routes, one per district loop. Neon Loop is the headline:
+ *  three laps, three named rivals, a lit start gate on Neon Mile. */
 export const RACE_ROUTES = [
   { id: 'marina-sprint', name: 'Marina Sprint', laps: 3, path: [[330, 396], [380, 380], [420, 330], [380, 280], [320, 300], [280, 350]] },
   { id: 'neon-loop', name: 'Neon Loop', laps: 3, path: [[448, 240], [480, 280], [440, 330], [400, 280], [420, 220]] },
   { id: 'island-tour', name: 'Island Tour', laps: 2, path: [[320, 392], [448, 240], [448, 120], [192, 120], [192, 392], [260, 420]] },
+];
+
+/** The three street-race rivals. Original names, original cars, original
+ *  colours — none of them belong to any other entry. */
+export const RACE_RIVALS = [
+  { name: 'Neri Flint', car: 'muscle', color: '#b03a8c', skill: 0.92 },
+  { name: 'Zella Coil', car: 'coupe', color: '#c22e2e', skill: 0.88 },
+  { name: 'Ivo Switch', car: 'sport', color: '#1c1c22', skill: 0.95 },
 ];

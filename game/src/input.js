@@ -1,7 +1,8 @@
 // Keyboard, mouse and touch input. A is left, D is right, and the mouse
 // look is not mirrored: moving the mouse right turns the view right.
 // One-shot actions (enter a car, pause, switch radio station) are
-// edge-triggered — one press, one action — so the radio never spins.
+// edge-triggered — one press, one action — so the radio never spins and a
+// held key never enters and exits a car twenty times a second.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER = 4;
@@ -22,7 +23,7 @@ const KEYMAP = {
 };
 
 export function createInput(target) {
-  const held = { forward: false, back: false, left: false, right: false, run: false, handbrake: false };
+  const held = { forward: false, back: false, left: false, right: false, run: false, handbrake: false, fire: false, aim: false };
   let actions = 0;
   let mouseDX = 0;
   let locked = false;
@@ -38,6 +39,7 @@ export function createInput(target) {
       event.preventDefault();
       return;
     }
+    // One-shot keys only fire on the first press, never on auto-repeat.
     if (event.repeat) return;
     if (event.code === 'KeyE') press(ACTION_ENTER);
     else if (event.code === 'KeyP' || event.code === 'Escape') press(ACTION_PAUSE);
@@ -53,11 +55,14 @@ export function createInput(target) {
     const name = KEYMAP[event.code];
     if (name) held[name] = false;
   });
+  // A key released while the tab is hidden never sends keyup: let go of
+  // everything on blur, or the player drives into a wall forever.
   window.addEventListener('blur', () => {
     for (const key of Object.keys(held)) held[key] = false;
   });
 
-  // Mouse look: pointer lock, right is right. The delta is never negated.
+  // Mouse look: pointer lock, right is right. The delta is never negated,
+  // never scaled by anything but the sensitivity in main.js.
   target.addEventListener('click', () => {
     if (target.requestPointerLock) target.requestPointerLock();
   });
@@ -98,11 +103,23 @@ export function createInput(target) {
   };
 }
 
-/** A synthetic input for headless tests and the autopilot. */
+/** A synthetic input for headless tests and the autopilot: every field
+ *  present, every field false, unless the caller overrides it. */
 export function stubInput(overrides) {
   return {
     steer: 0, forward: false, back: false, run: false,
     handbrake: false, fire: false, enter: false,
     climbUp: false, climbDown: false, ...overrides,
+  };
+}
+
+/** Merge a held-keys object into a step input: forward/back/run plus the
+ *  steering direction, so the world never has to read the keyboard itself. */
+export function heldToInput(held) {
+  return {
+    steer: (held.right ? 1 : 0) - (held.left ? 1 : 0),
+    forward: !!held.forward, back: !!held.back, run: !!held.run,
+    handbrake: !!held.handbrake, fire: !!held.fire, enter: false,
+    climbUp: !!held.forward, climbDown: !!held.back,
   };
 }

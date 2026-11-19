@@ -3,6 +3,10 @@
 // the frame is what a short game really looks like and the same seed always
 // gives the same frame. Every required element is checked in NDC before
 // the freeze — one element out of frame fails the shot out loud.
+// QA rebuild #5 fixes live here: the race camera is wider and higher so
+// the player car is fully in frame; the cover cruiser sits closer to
+// centre; the onfoot civilian stands AHEAD of the player, in frame; the
+// map shot hides the DOM minimap and keeps its labels clear of the dots.
 import { STEP } from './config.js';
 import { startMission, currentStep } from './missions.js';
 import { queueMissionLines, stepDialogue } from './dialogue.js';
@@ -140,10 +144,11 @@ function stageCover(world) {
   const rz = Math.sin(h);
   if (state.police[0]) {
     const cop = state.police[0];
-    // Eight metres behind and six to the side: dead behind, the cruiser
-    // sits 3 m in front of the chase camera and falls off the bottom edge.
-    cop.x = state.player.x - fx * 8 + rx * 6;
-    cop.z = state.player.z - fz * 8 + rz * 6;
+    // QA #5 fix: the cruiser was half-cut at the frame edge (8 m behind,
+    // 6 m to the side). Seven metres behind and 2.5 m to the side puts it
+    // closer to centre, well clear of the weapon panel.
+    cop.x = state.player.x - fx * 7 + rx * 2.5;
+    cop.z = state.player.z - fz * 7 + rz * 2.5;
     cop.heading = h;
     cop.state = 'RAMMING';
     cop.onFoot = false;
@@ -243,10 +248,11 @@ function stageRace(world) {
     placed.push({ name: `rival ${rival.name}`, x: car.x, y: 1.5, z: car.z });
   }
   return {
-    // Wider and higher than the chase default: the player car was half
-    // out of the bottom-left corner at boom 13.
-    cameraBoom: 17,
-    cameraHeight: 6.5,
+    // QA #5 fix: at boom 17 / height 6.5 the player car was half out of
+    // the bottom-left corner. Boom 24 and height 8.5 pull the camera
+    // back and up so the whole car — and the pack around it — fits.
+    cameraBoom: 24,
+    cameraHeight: 8.5,
     required: [
       { name: 'player car', x: state.player.x, y: 1.5, z: state.player.z },
       placed[0],
@@ -282,12 +288,15 @@ function stageOnFoot(world) {
   state.player.vehicle = null;
   state.loadout.current = 'rifle';
   state.loadout.muzzleFlash = 0.09;
-  // Two Vultures with red markers, in frame, and one civilian behind.
+  // Two Vultures with red markers ahead, and one civilian AHEAD of the
+  // player too. QA #5 fix: the civilian used to stand at (460, 252) —
+  // behind a player facing north (heading PI, forward -Z) — so it was
+  // behind the camera and never in frame. (474, 222) is 18 m ahead.
   state.peds.length = 0;
   state.peds.push(
     { id: 900, x: 472, z: 226, heading: 0, speed: 0, health: 100, dead: false, skin: '#c98d5f', hair: '#4a2c14', shirt: '#5a1f1f', pants: '#22303e', scale: 1, walkTime: 0, targetX: 472, targetZ: 226, waitTimer: 9, fleeing: false },
     { id: 901, x: 468, z: 230, heading: 0, speed: 0, health: 100, dead: false, skin: '#8a5a3b', hair: '#14141a', shirt: '#5a1f1f', pants: '#22303e', scale: 1, walkTime: 0, targetX: 468, targetZ: 230, waitTimer: 9, fleeing: false },
-    { id: 902, x: 460, z: 252, heading: 0, speed: 1.4, health: 100, dead: false, skin: '#d9a066', hair: '#3a3a3a', shirt: '#17a589', pants: '#3a3f4a', scale: 1, walkTime: 0, targetX: 460, targetZ: 252, waitTimer: 0, fleeing: false },
+    { id: 902, x: 474, z: 222, heading: 0, speed: 1.4, health: 100, dead: false, skin: '#d9a066', hair: '#3a3a3a', shirt: '#17a589', pants: '#3a3f4a', scale: 1, walkTime: 0, targetX: 474, targetZ: 222, waitTimer: 0, fleeing: false },
   );
   state.missions.progress = 2;
   return {
@@ -295,6 +304,7 @@ function stageOnFoot(world) {
       { name: 'player', x: state.player.x, y: 1.5, z: state.player.z },
       { name: 'vulture 1', x: 472, y: 1.5, z: 226 },
       { name: 'vulture 2', x: 468, y: 1.5, z: 230 },
+      { name: 'civilian', x: 474, y: 1.5, z: 222 },
     ],
   };
 }
@@ -306,7 +316,12 @@ export function drawMapShot(canvas, state) {
   const H = canvas.height;
   ctx.fillStyle = '#101418';
   ctx.fillRect(0, 0, W, H);
-  const scaleX = (W * 0.62) / 640;
+  // QA #5 fix: the map used to be W*0.62 wide while the side panel sat
+  // at W*0.68, and the DOM minimap stayed visible over it — the panel
+  // and the minimap both overlapped the drawn map. The map is now
+  // W*0.56 wide, the panel stays at W*0.68, and main.js hides the
+  // minimap element for this shot.
+  const scaleX = (W * 0.56) / 640;
   const scaleY = (H * 0.86) / 480;
   const ox = 24;
   const oy = 40;
@@ -344,7 +359,10 @@ export function drawMapShot(canvas, state) {
     ctx.fillStyle = '#f5efe4';
     ctx.font = 'bold 13px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(d.name, X(d.x), Y(d.y) - 22);
+    // QA #5 fix: labels sat at Y-22, their bottom edge touching the
+    // 16-radius dot. Y-30 leaves a clear gap ("Old Town" no longer
+    // touches its dot).
+    ctx.fillText(d.name, X(d.x), Y(d.y) - 30);
   }
   // Grid A-F, 1-6.
   ctx.fillStyle = '#b8ab96';

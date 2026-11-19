@@ -1,6 +1,8 @@
 // Saves: the player's progress, lifetime stats and the mid-game staging
 // save the screenshots load. A save is plain JSON in localStorage, written
-// through the same load path the player uses — never hand-written HUD numbers.
+// through the same load path the player uses — never hand-written HUD
+// numbers. Stats live under a second key, apart from the save, so they
+// survive a new game and the pause screen can show a lifetime.
 import { SAVE_KEY, STATS_KEY } from './config.js';
 
 /** A fresh save: a new arrival in Solmar with $250 and a borrowed pistol. */
@@ -17,7 +19,8 @@ export function freshSave() {
 /**
  * The mid-game staging save every screenshot loads: mission 6 active,
  * $12,950 in cash, 1,770 respect ("Big Shot"), the penthouse owned and
- * 8 of 20 postcards found. It is built by playing the game, not typed in.
+ * 8 of 20 postcards found. It is built by playing the game, not typed in:
+ * the numbers are the ones a real playthrough earns by job 6.
  */
 export function stagingSave() {
   const save = freshSave();
@@ -38,10 +41,13 @@ export function stagingSave() {
   return save;
 }
 
+/** Turn a save object into its JSON text. */
 export function serializeSave(state) {
   return JSON.stringify(state);
 }
 
+/** Parse save text back into a save, filling any missing field from a
+ *  fresh save so an old save never crashes a new build. */
 export function parseSave(text) {
   try {
     const data = JSON.parse(text);

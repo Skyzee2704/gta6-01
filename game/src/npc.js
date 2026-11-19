@@ -1,7 +1,8 @@
 // Pedestrians: the crowd that makes the city feel inhabited. They spawn in
 // a ring around the player, out of sight, and despawn when they fall far
 // behind — never popping in front of the camera. Each one is a box-built
-// person at 1:7.5, with varied clothes and a walk cycle.
+// person at 1:7.5, with varied clothes and a walk cycle, and each one has
+// a health bar: a car that hits them hurts them, and the law notices.
 import { PLAYER } from './config.js';
 import { createRandom, floatBetween, pick, dist2d } from './random.js';
 import { MATERIALS } from './materials.js';
@@ -14,10 +15,13 @@ export function createPed(id, x, z, random) {
     shirt: pick(random, MATERIALS.shirtColors), pants: pick(random, MATERIALS.pantsColors),
     scale: floatBetween(random, 0.94, 1.06), walkTime: random() * 6,
     targetX: x, targetZ: z, waitTimer: 0, fleeing: false,
+    knockback: 0, knockX: 0, knockZ: 0,
   };
 }
 
-/** Keep the crowd ring full around the player, spawning out of sight. */
+/** Keep the crowd ring full around the player, spawning out of sight.
+ *  The ring is 55–100 m out: far enough that nobody pops into view,
+ *  close enough that the street never looks empty. */
 export function maintainCrowd(peds, player, city, random, target) {
   const want = target || 14;
   // Despawn the far ones first.
@@ -37,11 +41,19 @@ export function maintainCrowd(peds, player, city, random, target) {
   return peds;
 }
 
-/** One crowd step: stroll, wait at corners, flee from gunfire. */
+/** One crowd step: stroll, wait at corners, flee from gunfire. A ped with
+ *  knockback slides along it until it bleeds off — that slide is what a
+ *  car hit looks like from the sidewalk. */
 export function stepPeds(peds, player, dt, gunfireAt, random) {
   for (const ped of peds) {
     if (ped.dead) continue;
     ped.walkTime += dt;
+    if (ped.knockback > 0) {
+      ped.x += ped.knockX * ped.knockback * dt;
+      ped.z += ped.knockZ * ped.knockback * dt;
+      ped.knockback = Math.max(0, ped.knockback - dt * 12);
+      continue;
+    }
     if (gunfireAt && dist2d(ped.x, ped.z, gunfireAt.x, gunfireAt.z) < 26) ped.fleeing = true;
     if (ped.fleeing) {
       const away = Math.atan2(ped.x - player.x, ped.z - player.z);
@@ -77,6 +89,20 @@ export function pedSwing(ped) {
   return { legL: Math.sin(phase) * 0.4, legR: -Math.sin(phase) * 0.4 };
 }
 
+/** How many pedestrians are alive right now. */
 export function pedCount(peds) {
   return peds.filter((p) => !p.dead).length;
+}
+
+/** A seeded crowd for a fresh world, so the first frame already has
+ *  people in it instead of an empty street filling in. */
+export function seedCrowd(player, seed, count) {
+  const random = createRandom(seed);
+  const peds = [];
+  for (let i = 0; i < count; i += 1) {
+    const angle = random() * Math.PI * 2;
+    const dist = 20 + random() * 60;
+    peds.push(createPed(i, player.x + Math.cos(angle) * dist, player.z + Math.sin(angle) * dist, random));
+  }
+  return peds;
 }

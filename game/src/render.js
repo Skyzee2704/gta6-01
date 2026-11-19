@@ -53,6 +53,15 @@ export function mergeBoxes(boxes) {
   return out;
 }
 
+/** Lighten or darken a hex colour by a factor, for asphalt patch variation. */
+function shadeHex(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((n & 255) * f));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
 function skyMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -163,9 +172,9 @@ export function createRenderer(canvas) {
   }
   let staticBuilt = false;
   let characterGroup = null;
-  let vehicleGroups = new Map();
-  let npcGroups = new Map();
-  let policeGroups = new Map();
+  const vehicleGroups = new Map();
+  const npcGroups = new Map();
+  const policeGroups = new Map();
 
   function buildStatic(state) {
     if (staticBuilt) return;
@@ -187,13 +196,7 @@ export function createRenderer(canvas) {
     // 101 KB against the 120 KB detail floor); patches break the flat.
     const roadBoxes = [];
     const walkBoxes = [];
-    const shadeHex = (hex, f) => {
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
-      const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
-      const b = Math.min(255, Math.round((n & 255) * f));
-      return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-    };
+    const zebraBoxes = [];
     for (const road of city.roads) {
       const len = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
       const midX = (road.x1 + road.x2) / 2;
@@ -213,17 +216,27 @@ export function createRenderer(canvas) {
         const t = (i + 0.5) / dashes;
         roadBoxes.push({ w: 0.5, h: 0.16, d: 3.2, x: road.x1 + (road.x2 - road.x1) * t, y: 0.1, z: road.z1 + (road.z2 - road.z1) * t, rot: angle, color: '#c9a227' });
       }
+      // Zebra crossings at both ends of each road: matte off-white
+      // stripes, never glossy, so they read without glaring at golden
+      // hour. Seven stripes across the 10 m road, 0.9 m wide each.
+      for (const end of [0.06, 0.94]) {
+        const cx = road.x1 + (road.x2 - road.x1) * end;
+        const cz = road.z1 + (road.z2 - road.z1) * end;
+        for (let s = -3; s <= 3; s += 1) {
+          const along = Math.sin(angle) * s * 1.3;
+          const across = Math.cos(angle) * s * 1.3;
+          zebraBoxes.push({ w: 0.9, h: 0.15, d: 3.6, x: cx + along, y: 0.1, z: cz + across, rot: angle, color: '#d8d4c8' });
+        }
+      }
     }
-    const roadsMesh = new THREE.Mesh(mergeBoxes(walkBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
-    scene.add(roadsMesh);
+    scene.add(new THREE.Mesh(mergeBoxes(walkBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })));
     // Asphalt 0.7, not 0.94: a little sheen from the low sun, so the road
     // reads as wet-looking tarmac at golden hour instead of black felt.
-    const asphaltMesh = new THREE.Mesh(mergeBoxes(roadBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }));
-    scene.add(asphaltMesh);
+    scene.add(new THREE.Mesh(mergeBoxes(roadBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 })));
+    if (zebraBoxes.length > 0) scene.add(new THREE.Mesh(mergeBoxes(zebraBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })));
     // Buildings: one merged mesh, pastel facades.
     const bBoxes = city.buildings.map((b) => ({ w: b.w, h: b.h, d: b.d, x: b.x, y: b.h / 2, z: b.z, rot: b.rot, color: b.color }));
-    const buildingsMesh = new THREE.Mesh(mergeBoxes(bBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
-    scene.add(buildingsMesh);
+    scene.add(new THREE.Mesh(mergeBoxes(bBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 })));
     // Windows: lit ones glow warm, dark ones stay dark blue. One merged mesh.
     const winBoxes = [];
     for (const b of city.buildings) {
@@ -247,8 +260,7 @@ export function createRenderer(canvas) {
         }
       }
     }
-    const windowsMesh = new THREE.Mesh(mergeBoxes(winBoxes), new THREE.MeshBasicMaterial({ vertexColors: true }));
-    scene.add(windowsMesh);
+    scene.add(new THREE.Mesh(mergeBoxes(winBoxes), new THREE.MeshBasicMaterial({ vertexColors: true })));
     // Rooftops: AC boxes, antennae, water tanks, beacons.
     const roofBoxes = [];
     for (const b of city.buildings) {
@@ -296,6 +308,13 @@ export function createRenderer(canvas) {
       if (mark.kind === 'pier') markBoxes.push({ w: 60, h: 1.2, d: 8, x: mark.x, y: 0.6, z: mark.y, color: '#8a6a42' });
     }
     if (markBoxes.length > 0) scene.add(new THREE.Mesh(mergeBoxes(markBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 })));
+    // Lamp posts along the roads, so the night city has pools of light.
+    const lampBoxes = [];
+    for (const lamp of city.lamps) {
+      lampBoxes.push({ w: 0.3, h: 6, d: 0.3, x: lamp.x, y: 3, z: lamp.z, color: '#2a2f3a' });
+      lampBoxes.push({ w: 0.8, h: 0.3, d: 0.5, x: lamp.x, y: 6.1, z: lamp.z, color: '#ffd27a' });
+    }
+    if (lampBoxes.length > 0) scene.add(new THREE.Mesh(mergeBoxes(lampBoxes), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 })));
   }
 
   /** One box-built person, from the same part table as the sim.
@@ -413,8 +432,7 @@ export function createRenderer(canvas) {
   /** A boat: hull, deck, cabin and a wake that follows it. */
   function makeBoatMesh(boat) {
     const group = new THREE.Group();
-    const hullMat = new THREE.MeshStandardMaterial({ color: boat.def.color, roughness: 0.4, metalness: 0.2 });
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 7.2), hullMat);
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 7.2), new THREE.MeshStandardMaterial({ color: boat.def.color, roughness: 0.4, metalness: 0.2 }));
     hull.position.y = 0.4;
     group.add(hull);
     const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.1, 2.6), new THREE.MeshStandardMaterial({ color: 0xf0f0e8, roughness: 0.5 }));
@@ -424,17 +442,6 @@ export function createRenderer(canvas) {
     mast.position.set(0, 2.8, -0.6);
     group.add(mast);
     return group;
-  }
-
-  function syncGroup(map, key, mesh, x, y, z, heading) {
-    if (!map.has(key)) {
-      scene.add(mesh);
-      map.set(key, mesh);
-    }
-    const node = map.get(key);
-    node.position.set(x, y, z);
-    node.rotation.y = heading;
-    return node;
   }
 
   function updateLighting(state, time) {

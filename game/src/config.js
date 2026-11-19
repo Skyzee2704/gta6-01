@@ -1,7 +1,8 @@
-// Every tuning number and colour in one place. SOLMAR is a round island city,
-// 640 by 480 units, ringed by sea: the playable land is a disc, never a square.
-// One unit is one metre. The clock starts at golden hour, 18.6, and runs
-// 0.6 game-minutes per real second, so dusk and night still happen in play.
+// Every tuning number and colour in one place. SOLMAR is a round island
+// city, 640 by 480 units, ringed by sea: the playable land is a disc, never
+// a square. One unit is one metre. The clock starts at golden hour, 18.6,
+// and runs 0.6 game-minutes per real second, so dusk and night still happen
+// inside a play session. Tuning lives here; logic lives in the modules.
 export const WORLD = { width: 640, height: 480, centreX: 320, centreY: 240, landRadius: 298, beachWidth: 18, seaLevel: -0.4 };
 
 /** The simulation's fixed step, in seconds: 60 updates a second whatever the display rate. */
@@ -11,11 +12,16 @@ export const STEP = 1 / 60;
 export const START_HOUR = 18.6;
 /** Game-minutes that pass per real second. */
 export const CLOCK_RATE = 0.6;
-/** Sun sets around here; the sky shader reads the hour every frame. */
+/** The sun sets around here; the sky shader reads the hour every frame. */
 export const SUNSET_HOUR = 19.5;
+/** Full dark by this hour; neon and street lamps take over the look. */
+export const NIGHT_HOUR = 21.0;
+/** Dawn, for the rare player who drives all night. */
+export const DAWN_HOUR = 6.0;
 
 export const PLAYER = {
   // Milo: 1.80 m tall, head to body 1 to 7.5, every part a box, nothing round.
+  // The head is 0.24 m, so the whole body reads as seven and a half heads.
   height: 1.8, head: 0.24, shoulderWidth: 0.46, hipWidth: 0.38,
   walkSpeed: 4.2, runSpeed: 7.0, accel: 26, turnSpeed: 9.5,
   maxHealth: 100, maxArmor: 100, punchDamage: 12, punchRange: 1.6,
@@ -40,14 +46,16 @@ export const COMBAT = {
 };
 
 export const VEHICLE = {
-  // Steering: D turns right, A turns left. Positive steer is always to the right,
-  // on the road, on a boat and in a helicopter, so nothing ever feels mirrored.
+  // Steering: D turns right, A turns left. Positive steer is always to the
+  // right, on the road, on a boat and in a helicopter, so nothing ever
+  // feels mirrored. Heading decreases when turning right in this convention.
   steerSpeed: 2.6, maxSteer: 0.62,
 };
 
 export const CITY = {
   buildingCount: 198, palmCount: 148, treeCount: 42,
   // No building footprint may come this close to a road centreline.
+  // 12 m of setback is what keeps facades off the asphalt in every shot.
   roadSetback: 12,
   lampSpacing: 26, hydrantSpacing: 60,
 };

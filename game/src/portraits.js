@@ -1,9 +1,14 @@
 // Portraits: the six cast faces, drawn on a 64 by 64 canvas from their
 // colours — box jaw, hair block, eyes, and a shirt strip. The same drawing
-// is used on the title screen, in dialogue, and on the race board.
+// is used on the title screen, in dialogue, and on the race board, so a
+// face the player meets in a mission is the face on the title screen.
+// Box faces, like box bodies: no circles, no spheres, nothing alien.
 import { CAST } from './data.js';
 
-/** Draw one portrait into a 64x64 canvas context. */
+/** Draw one portrait into a 64x64 canvas context. The face is a box jaw
+ *  in the skin tone, hair is a block across the top with side pieces, eyes
+ *  are two dark boxes, the mouth is one short box, and the shirt strip at
+ *  the bottom carries the character's colour. */
 export function drawPortrait(ctx, person, size) {
   const s = size || 64;
   const u = s / 64;
@@ -32,7 +37,8 @@ export function drawPortrait(ctx, person, size) {
   return ctx;
 }
 
-/** A portrait canvas for a cast member, by id. */
+/** A portrait canvas for a cast member, by id. Unknown ids fall back to
+ *  Milo, so a typo in a dialogue line never blanks the dialogue box. */
 export function portraitCanvas(id, size) {
   const person = CAST.find((c) => c.id === id) || CAST[0];
   const canvas = document.createElement('canvas');
@@ -45,4 +51,11 @@ export function portraitCanvas(id, size) {
 /** The cast in title-screen order. */
 export function titleCast() {
   return CAST.slice();
+}
+
+/** A portrait for a mission giver, by mission id — Kane plans the odd
+ *  jobs, Rosa drives the even ones. */
+export function giverPortrait(missionId) {
+  const giver = missionId % 2 === 1 ? 'kane' : 'rosa';
+  return portraitCanvas(giver, 64);
 }

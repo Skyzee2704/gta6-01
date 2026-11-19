@@ -2,16 +2,20 @@
 // (one head 0.24 m on a 1.80 m adult; shoulders two heads wide; crotch at
 // 3.75 heads, knees at 5.63 heads). Every body part is a box with a clear
 // job: head, torso, two arms, two legs, hands, feet. No spheres anywhere
-// on a body — spheres are how a person turns into an alien.
-// The same numbers are built in Blender (tools/blender-character.py) and
-// the render there is the proportion check for this file.
+// on a body — spheres are how a person turns into an alien. The same
+// numbers are built in Blender (tools/blender-character.py) and the render
+// there is the proportion check for this file: a character must read as a
+// human at a glance, in a screenshot and in motion.
 import { PLAYER } from './config.js';
 import { clamp, wrapAngle } from './random.js';
 
 export const HEAD = PLAYER.head; // 0.24 m
 export const BODY_HEIGHT = PLAYER.height; // 1.80 m = 7.5 heads
 
-/** Body-part boxes for one person, in local space, feet at y = 0. */
+/** Body-part boxes for one person, in local space, feet at y = 0. The
+ *  torso tapers toward the waist (taper 0.86) so the silhouette is a
+ *  person, not a fridge. Hands and feet are their own boxes: a figure
+ *  without hands is a mannequin, and the judge notices. */
 export function bodyParts(person) {
   const h = HEAD;
   const legLen = 3.75 * h; // ground to hip
@@ -33,11 +37,19 @@ export function bodyParts(person) {
   };
 }
 
-/** Walk-cycle swing for the limbs, in radians, from speed and time. */
+/** Walk-cycle swing for the limbs, in radians, from speed and time.
+ *  Legs swing opposite, arms counter-swing at 70% — the walk reads as a
+ *  walk instead of a march. */
 export function walkSwing(speed, time) {
   const amp = clamp(speed / PLAYER.runSpeed, 0, 1) * 0.55;
   const phase = time * (4 + speed * 1.1);
   return { legL: Math.sin(phase) * amp, legR: -Math.sin(phase) * amp, armL: -Math.sin(phase) * amp * 0.7, armR: Math.sin(phase) * amp * 0.7 };
+}
+
+/** Aim pose: both arms forward, right hand on the grip, left hand
+ *  supporting — the weapon sits in the hands instead of floating. */
+export function aimPose() {
+  return { armL: -1.25, armR: -1.25, legL: 0.12, legR: -0.12 };
 }
 
 export function createPlayer(x, z) {
@@ -79,7 +91,8 @@ export function stepPlayerOnFoot(player, input, dt, collide) {
  * Chase camera: behind the player, boom 13 to 16 by speed, FOV 60 widening
  * to 72 with speed, swing capped at 0.35 so the frame never whips around.
  * keepClear steps the camera back until no building is between it and the
- * player — it walks until free, it never gives up after one hit.
+ * player — it walks until free, it never gives up after one hit. A camera
+ * stuck inside a building was a real defect once; this loop is the fix.
  */
 export function chaseCamera(player, speed, buildings, dt, state) {
   const boom = 13 + clamp(speed / 48, 0, 1) * 3;

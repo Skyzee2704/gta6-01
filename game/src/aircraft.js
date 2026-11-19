@@ -1,7 +1,10 @@
 // Helicopters: the PCPD Falcon the player can steal and fly, and the
 // police helicopter that circles a wanted player with its searchlight.
 // Steering matches the car and the boat: D turns right, A turns left —
-// the mirror bug that once flipped the helicopter is gone for good.
+// the mirror bug that once flipped the helicopter is gone for good, and
+// the sign below is the regression test for it. Climb is W/S when flying:
+// forward climbs, back descends, and the altitude eases toward its target
+// instead of snapping.
 import { clamp, wrapAngle } from './random.js';
 
 export function createHeli(x, z, heading) {
@@ -14,7 +17,8 @@ export function createHeli(x, z, heading) {
 
 /**
  * One helicopter step. steer: -1 left, +1 right — the same sign as the
- * car, the boat and the player on foot. climb: 1 up, -1 down.
+ * car, the boat and the player on foot. climb: 1 up, -1 down. Throttle
+ * pushes forward; drag keeps the top speed honest at 55 m/s.
  */
 export function stepHeli(heli, input, dt) {
   const steer = clamp(input.steer, -1, 1);
@@ -34,7 +38,9 @@ export function stepHeli(heli, input, dt) {
   return heli;
 }
 
-/** The police helicopter circles the player, beam locked on them. */
+/** The police helicopter circles the player, beam locked on them. It
+ *  eases toward its orbit point instead of teleporting, so the beam
+ *  sweeps across the road like a real searchlight. */
 export function stepPoliceHeli(heli, player, dt, time) {
   const orbit = time * 0.35;
   const tx = player.x + Math.cos(orbit) * 26;
@@ -51,10 +57,25 @@ export function stepPoliceHeli(heli, player, dt, time) {
   return heli;
 }
 
-/** Board the helicopter. */
+/** Board the helicopter: the player is in the air now, and the vehicle
+ *  slot holds the heli so the HUD shows its name and speed. */
 export function boardHeli(player, heli) {
   player.onFoot = false;
   player.vehicle = heli;
   heli.driver = player;
+  return heli;
+}
+
+/** Step out of a helicopter onto the ground below it. */
+export function leaveHeli(player) {
+  const heli = player.vehicle;
+  if (heli && heli.id === 'heli') {
+    heli.driver = null;
+    player.x = heli.x + 2;
+    player.z = heli.z + 2;
+  }
+  player.vehicle = null;
+  player.onFoot = true;
+  player.speed = 0;
   return heli;
 }

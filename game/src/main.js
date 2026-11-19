@@ -59,11 +59,18 @@ function runShot(name) {
   // match the staging save — not the static HTML placeholders.
   const hud = createHud(hudElements());
   const minimap = createMinimap(document.getElementById('minimap'));
+  // The radio banner is part of the frame: flash it before the HUD paint,
+  // or the station name never shows (its timer starts at zero).
+  flashRadio(hud);
   updateHud(hud, state, STEP);
   drawMinimap(minimap, state, minimapBlips(state));
   if (name === 'map') {
     canvas.style.display = 'none';
     mapCanvas.style.display = 'block';
+    // QA #5 fix: the DOM minimap used to stay visible over the drawn
+    // map canvas. Hide it for the map shot so the map is unobstructed.
+    const minimapEl = document.getElementById('minimap');
+    if (minimapEl) minimapEl.style.display = 'none';
     drawMapShot(mapCanvas, state);
     window.__shotReady = true;
     window.__shotLuma = 0.645;
@@ -72,7 +79,8 @@ function runShot(name) {
   // Snap the chase camera behind the player before the first paint. The
   // camera lerps 12% a frame toward its target, so three paints from the
   // spawn leave it ~70% of the way there — a distant, empty frame.
-  // A staged scene may ask for a wider boom (the cover's pursuit).
+  // A staged scene may ask for a wider boom (the cover's pursuit, the
+  // race pack).
   const cam = state.camera;
   const boom = staged.cameraBoom || 13;
   cam.camX = state.player.x - Math.sin(state.player.heading) * boom;

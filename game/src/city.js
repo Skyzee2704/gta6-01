@@ -1,7 +1,9 @@
-// The city itself: a round island, generated once per seed. Roads are a ring
-// plus six spokes plus a downtown grid; every building footprint is checked
-// clear of every road centreline by ROAD_SETBACK, so no building ever covers
-// a road. The same data feeds the sim, the renderer and the cityCheck gate.
+// The city itself: a round island, generated once per seed. Roads are a
+// ring plus six spokes plus a downtown grid; every building footprint is
+// checked clear of every road centreline by the setback, so no building
+// ever covers a road and no facade ever swallows a lane. The same data
+// feeds the sim, the renderer and the cityCheck gate, so a city that
+// passes the gate is the city the player drives through.
 import { CITY, WORLD, DISTRICTS } from './config.js';
 import { MISSIONS, POSTCARDS, INTERIORS, RACE_ROUTES } from './data.js';
 import { createRandom, floatBetween, intBetween, pick, dist2d } from './random.js';
@@ -10,7 +12,8 @@ import { createRandom, floatBetween, intBetween, pick, dist2d } from './random.j
  * Gameplay points no building may ever cover: mission step targets,
  * postcards, interiors, race waypoints, the spawn, the safehouse, the
  * penthouse and the heli pad. A mission whose target sits inside a
- * building can never be finished, whatever the seed.
+ * building can never be finished, whatever the seed — so the generator
+ * treats these points as sacred ground.
  */
 export const PROTECTED_POINTS = (() => {
   const pts = [
@@ -90,6 +93,9 @@ export const FACADE_COLORS = ['#e8dcc8', '#d9c7a7', '#c8b8d9', '#a7c8d9', '#d9a7
 
 export const ROOF_SHAPES = ['flat', 'gable', 'hip', 'parapet', 'dome', 'sawtooth'];
 
+/** Build the whole island for a seed: roads, buildings, landmarks, palms,
+ *  street trees and lamps. Deterministic — the same seed always builds
+ *  the same city, down to the last awning. */
 export function generateCity(seed) {
   const random = createRandom(seed);
   const cx = WORLD.centreX;
@@ -179,6 +185,9 @@ export function generateCity(seed) {
     { id: 'penthouse', name: 'Penthouse Tower', x: 300, y: 210, kind: 'tower', h: 52 },
   ];
 
+  // Palms ring the shore and the beach; street trees fill the inner city.
+  // A palm is 5.5–8.5 m tall — about three to four times a person, never
+  // the giant blob that once filled a quarter of the on-foot frame.
   const palms = [];
   for (let i = 0; i < CITY.palmCount; i += 1) {
     const angle = random() * Math.PI * 2;
@@ -197,6 +206,7 @@ export function generateCity(seed) {
     trees.push({ x, z, h: floatBetween(random, 4, 6.5), canopy: floatBetween(random, 1.6, 2.6) });
   }
 
+  // One lamp every 26 m along every road, alternating sides.
   const lamps = [];
   for (const road of roads) {
     const len = dist2d(road.x1, road.z1, road.x2, road.z2);
@@ -233,4 +243,9 @@ export function inSea(x, z) {
   const dx = (x - WORLD.centreX) / (WORLD.landRadius + 60);
   const dz = (z - WORLD.centreY) / ((WORLD.landRadius + 60) * 0.75);
   return dx * dx + dz * dz > 1;
+}
+
+/** True when a point is on the beach ring between land and sea. */
+export function onBeach(x, z) {
+  return !onLand(x, z) && !inSea(x, z);
 }

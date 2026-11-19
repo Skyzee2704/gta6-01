@@ -3,7 +3,8 @@
 // them, five weapon slots with the held weapon's picture and ammo, the
 // mission banner top left, the radio now-playing at the bottom, the vehicle
 // card bottom right, and the round radar bottom left. All of it is DOM the
-// renderer never touches, updated only when a value changes.
+// renderer never touches, updated only when a value changes, so a frame
+// with nothing new costs nothing.
 import { HUD_SLOTS, ammoText } from './weapons.js';
 import { weaponById, RADIO } from './data.js';
 import { responseList } from './police.js';
@@ -12,7 +13,9 @@ import { objectiveText, completionPercent } from './missions.js';
 import { respectName } from './data.js';
 import { drawPortrait } from './portraits.js';
 
-/** Draw a small picture of a weapon on a canvas: barrel, grip, magazine. */
+/** Draw a small picture of a weapon on a canvas: barrel, grip, magazine.
+ *  The VK-47 gets the wooden stock and the curved magazine, because that
+ *  silhouette is the one the player recognises at a glance. */
 export function drawWeaponPicture(ctx, weaponId, size) {
   const s = size || 72;
   ctx.clearRect(0, 0, s, s);
@@ -46,12 +49,16 @@ export function drawWeaponPicture(ctx, weaponId, size) {
     ctx.fillRect(26, 22, 16, 6);
     ctx.fillRect(18, 35, 9, 14);
     ctx.fillRect(58, 30, 8, 4);
+  } else if (weaponId === 'bat') {
+    ctx.fillStyle = '#8a6a42';
+    ctx.fillRect(30, 10, 10, 48);
+    ctx.fillRect(28, 56, 14, 6);
   }
   ctx.strokeRect(4, 4, s - 8, s - 8);
 }
 
 export function createHud(elements) {
-  return { el: elements, last: {}, radioTimer: 0 };
+  return { el: elements, last: {}, radioTimer: 0, station: 0 };
 }
 
 /** Update every HUD panel from the live state. Call once per frame. */

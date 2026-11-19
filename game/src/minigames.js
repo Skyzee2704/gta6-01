@@ -1,6 +1,7 @@
 // Side activities: taxi fares, the twenty postcard tapes, street races,
 // Pay n Spray resprays, the penthouse and the garage. The city pays for
-// playing around, not just for story jobs.
+// playing around, not just for story jobs — a player who never touches a
+// mission can still get rich driving a taxi and collecting tapes.
 import { POSTCARDS, RACE_ROUTES } from './data.js';
 import { taxiFare } from './economy.js';
 import { dist2d } from './random.js';
@@ -25,6 +26,7 @@ export function startTaxiJob(job, player, random) {
   return job;
 }
 
+/** Advance a taxi job; returns the fare paid on drop-off, else 0. */
 export function stepTaxiJob(job, player) {
   if (!job.active) return 0;
   if (!job.passenger && dist2d(player.x, player.z, job.pickupX, job.pickupZ) < 6) {
@@ -64,11 +66,12 @@ export function raceRoutes() {
   return RACE_ROUTES;
 }
 
-/** A street race: laps, checkpoints and live standings. */
+/** A street race: laps, checkpoints and live standings. The three rivals
+ *  are the same three names everywhere — the shot, the board, the HUD. */
 export function createRace(routeId) {
   const route = RACE_ROUTES.find((r) => r.id === routeId) || RACE_ROUTES[0];
   return {
-    route, lap: 1, checkpoint: 0, time: 0, finished: false,
+    route, lap: 1, checkpoint: 0, time: 0, finished: false, state: 'racing',
     rivals: [
       { name: 'Neri Flint', progress: 0, lap: 1 },
       { name: 'Zella Coil', progress: 0, lap: 1 },
@@ -78,6 +81,8 @@ export function createRace(routeId) {
   };
 }
 
+/** Advance a race: checkpoints when the player passes them, laps when the
+ *  route wraps, rivals creeping forward at their own pace. */
 export function stepRace(race, player, dt, random) {
   if (race.finished) return race;
   race.time += dt;
@@ -88,7 +93,10 @@ export function stepRace(race, player, dt, random) {
     race.playerProgress += 1;
     if (race.checkpoint % points.length === 0) {
       race.lap += 1;
-      if (race.lap > race.route.laps) race.finished = true;
+      if (race.lap > race.route.laps) {
+        race.finished = true;
+        race.state = 'finished';
+      }
     }
   }
   for (const rival of race.rivals) {
@@ -103,4 +111,10 @@ export function raceStandings(race) {
   for (const r of race.rivals) rows.push({ name: r.name, progress: r.progress, lap: r.lap });
   rows.sort((a, b) => b.progress - a.progress || b.lap - a.lap);
   return rows.map((r, i) => ({ place: i + 1, ...r }));
+}
+
+/** True when the player is winning the race right now. */
+export function isPlayerLeading(race) {
+  const rows = raceStandings(race);
+  return rows.length > 0 && rows[0].name.startsWith('Milo');
 }

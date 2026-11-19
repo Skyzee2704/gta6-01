@@ -1,12 +1,16 @@
 // Dialogue: the mission talk, queued line by line, each with its speaker
 // and a portrait. All of it is in English, all of it original to Solmar.
+// A line lives on screen for four and a half seconds, then the next one
+// steps in — the queue never drops a line, and starting a mission clears
+// the old queue first so two jobs never talk over each other.
 import { CAST } from './data.js';
 
 export function castById(id) {
   return CAST.find((c) => c.id === id) || CAST[0];
 }
 
-/** The lines for one mission, in order. */
+/** The lines for one mission, in order. Kane plans, Rosa drives, Milo
+ *  talks back — three voices, three lines each, every job. */
 export const MISSION_LINES = {
   1: [
     { who: 'kane', text: 'Milo. You want in? Prove it. Bring me a coupe off Marina Boulevard.' },
@@ -45,19 +49,20 @@ export function createDialogue() {
   return { queue: [], current: null, timer: 0 };
 }
 
-/** Queue a mission's lines. */
+/** Queue a mission's lines, in order, with the speaker attached. */
 export function queueMissionLines(dialogue, missionId) {
   const lines = MISSION_LINES[missionId] || [];
   for (const line of lines) dialogue.queue.push({ ...line, speaker: castById(line.who) });
   return dialogue.queue.length;
 }
 
-/** Queue one free line. */
+/** Queue one free line, outside any mission. */
 export function say(dialogue, who, text) {
   dialogue.queue.push({ who, text, speaker: castById(who) });
 }
 
-/** Advance the queue; shows each line for a few seconds. */
+/** Advance the queue; shows each line for a few seconds. Returns the
+ *  line on screen now, or null when the queue is quiet. */
 export function stepDialogue(dialogue, dt) {
   if (!dialogue.current && dialogue.queue.length > 0) {
     dialogue.current = dialogue.queue.shift();
@@ -68,4 +73,13 @@ export function stepDialogue(dialogue, dt) {
     if (dialogue.timer <= 0) dialogue.current = null;
   }
   return dialogue.current;
+}
+
+/** Clear the queue and the line on screen — used when a new mission
+ *  starts, so the old job's last line never haunts the new one. */
+export function clearDialogue(dialogue) {
+  dialogue.queue.length = 0;
+  dialogue.current = null;
+  dialogue.timer = 0;
+  return dialogue;
 }

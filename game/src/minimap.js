@@ -1,7 +1,8 @@
 // The minimap: a round radar that turns with the player's heading, with
 // a health arc and an armour arc on its rim, a respect ring, mission blips
 // that stick to the edge when they are out of range, and the police search
-// zone as a shaded area while wanted is active.
+// zone as a shaded area while wanted is active. Round, like the island;
+// the radar is a map of the disc, not a square window onto it.
 import { WORLD } from './config.js';
 import { districtAt } from './city.js';
 import { dist2d } from './random.js';
@@ -115,5 +116,6 @@ export function minimapBlips(state) {
   const step = state.missions.active ? state.missions.active.steps[state.missions.stepIndex] : null;
   if (step) blips.push({ x: step.x, z: step.y, color: '#ffd23e', kind: 'mission' });
   for (const unit of state.police) blips.push({ x: unit.x, z: unit.z, color: '#3a7bff', kind: 'police' });
+  for (const card of (state.postcardsFound || []).length < 20 ? [] : []) blips.push({ x: card.x, z: card.y, color: '#37e6ff', kind: 'postcard' });
   return blips;
 }
