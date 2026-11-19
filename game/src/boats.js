@@ -1,78 +1,77 @@
-// SOLMAR 3D — boats. Two boats ride at the marina: a speedboat and a
-// cabin cruiser. Climb in at the dock, drive on the water, beach them
-// and they stop. The cover shot shows the sea, a boat and the palms —
-// the marina is part of the frame, not an afterthought.
-import { clamp } from './random.js';
+// Boats: the Harbor Cruiser and the Marina Speedboat, driveable on the
+// sea around the island. Steering is the same as on land — D turns right,
+// A turns left — and the boat coasts to a stop instead of braking hard.
+import { vehicleById } from './data.js';
+import { clamp, wrapAngle } from './random.js';
+import { inSea, onLand } from './city.js';
 
-export function createBoats(state) {
-  // Both boats sit on the r=234 waterline, 6 units off the shore the
-  // player can walk (r<=228) — inside the 8-unit boarding reach.
-  // (The old spots, r=240 and r=260, were unboardable: the player could
-  // never get within 8 units of them.)
-  state.boats = [
-    { id: 'boat-1', name: 'Wave Runner', kind: 'speedboat', x: 229, z: 49, heading: Math.PI / 2, speed: 0, topSpeed: 34, color: 0xd83a2a, driver: null, wake: 0 },
-    { id: 'boat-2', name: 'Harbor Cruiser', kind: 'cruiser', x: 210, z: 103, heading: -Math.PI / 2, speed: 0, topSpeed: 22, color: 0xe8e0d0, driver: null, wake: 0 },
-  ];
-  state.playerBoat = null;
+export function createBoat(defId, x, z, heading) {
+  const def = vehicleById(defId);
+  return {
+    id: defId, def, x, z, y: 0, heading, speed: 0,
+    // Bob phase from position, never Math.random(): two renders of the same
+    // staging must be byte-identical for the shot gate, and an unseeded
+    // phase lifts each boat to a different height per page load.
+    vx: 0, vz: 0, health: 100, driver: null, bobPhase: ((x * 0.13 + z * 0.07) % 6 + 6) % 6,
+  };
 }
 
-export function stepBoats(state, dt, input) {
-  const p = state.player;
-  if (state.playerBoat === null) return;
-  const boat = state.boats.find((b) => b.id === state.playerBoat);
-  if (!boat) { state.playerBoat = null; return; }
-  const move = input.move();
-  boat.speed = clamp(boat.speed + move.z * 16 * dt - boat.speed * 0.25 * dt, -6, boat.topSpeed);
-  boat.heading += move.x * dt * 1.1 * (boat.speed < 0 ? -1 : 1); // same sign as cars: D = right. (Was * -1: the boat steered mirrored, so the autopilot sailed away from the escape marker and a human's A/D were backwards.)
-  boat.x += Math.sin(boat.heading) * boat.speed * dt;
-  boat.z += Math.cos(boat.heading) * boat.speed * dt;
-  boat.wake = clamp(Math.abs(boat.speed) / boat.topSpeed, 0, 1);
-  // Stay in the water: outside the island disc. Clamp the position
-  // only — do NOT slash the speed: the escape boat sails to a marker
-  // that sits just inside the waterline, and slashing speed to 0.3
-  // every step pinned it to a 0.35 u/s crawl along the coast, so the
-  // mission-6 escape could never reach the boat marker. A boat
-  // hugging the coast keeps its speed and slides along it.
-  const r = Math.hypot(boat.x, boat.z);
-  if (r < 234) {
-    boat.x *= 234 / r;
-    boat.z *= 234 / r;
+/**
+ * One boat step. Boats only go forward, steer gently, and coast: releasing
+ * the throttle lets the speed bleed away slowly instead of stopping dead.
+ */
+export function stepBoat(boat, input, dt) {
+  const def = boat.def;
+  const steer = clamp(input.steer, -1, 1) * 0.5;
+  const turn = steer * (0.5 + Math.min(1, Math.abs(boat.speed) / def.topSpeed)) * 1.1;
+  // D is right on the water too: steer +1 decreases the heading, same as the car.
+  boat.heading = wrapAngle(boat.heading - turn * dt * Math.sign(boat.speed || 1));
+  let speed = boat.speed + input.throttle * def.accel * dt;
+  speed -= speed * 0.25 * dt; // water drag: the coast
+  if (input.brake > 0) speed = Math.max(0, speed - 10 * dt);
+  boat.speed = clamp(speed, 0, def.topSpeed);
+  boat.vx = Math.sin(boat.heading) * boat.speed;
+  boat.vz = Math.cos(boat.heading) * boat.speed;
+  boat.x += boat.vx * dt;
+  boat.z += boat.vz * dt;
+  boat.bobPhase += dt * 1.4;
+  // Boats stay in the sea: the beach pushes them back out.
+  if (onLand(boat.x, boat.z) && !inSea(boat.x, boat.z)) {
+    boat.x -= boat.vx * dt * 2;
+    boat.z -= boat.vz * dt * 2;
+    boat.speed *= 0.4;
   }
-  if (r > 320) {
-    boat.x *= 320 / r;
-    boat.z *= 320 / r;
-  }
-  p.x = boat.x;
-  p.z = boat.z;
-  p.heading = boat.heading;
-  state.camera.yaw = boat.heading + Math.PI;
-  state.stats.distanceDriven += Math.abs(boat.speed) * dt;
+  return boat;
 }
 
-export function tryEnterBoat(state) {
-  const p = state.player;
-  if (state.playerBoat !== null) {
-    const boat = state.boats.find((b) => b.id === state.playerBoat);
-    if (boat) {
-      boat.driver = null;
-      boat.speed = 0;
-      p.x = boat.x - 3;
-      p.z = boat.z;
-    }
-    state.playerBoat = null;
-    p.onFoot = true;
-    return true;
+/** Board a boat: the player is on the water now, not on foot. */
+export function boardBoat(player, boat) {
+  player.onFoot = false;
+  player.boat = boat;
+  boat.driver = player;
+  return boat;
+}
+
+export function leaveBoat(player) {
+  const boat = player.boat;
+  if (boat) {
+    boat.driver = null;
+    player.x = boat.x + 3;
+    player.z = boat.z + 3;
   }
-  if (!p.onFoot) return false;
-  for (const boat of state.boats) {
-    const d = Math.hypot(p.x - boat.x, p.z - boat.z);
-    if (d < 8) {
-      boat.driver = 'player';
-      state.playerBoat = boat.id;
-      p.onFoot = false;
-      state.notices.push({ text: `${boat.name} — W to throttle, A/D to steer.`, ttl: 4 });
-      return true;
-    }
+  player.boat = null;
+  player.onFoot = true;
+  player.speed = 0;
+  return boat;
+}
+
+/** The nearest boat within boarding range, or null. */
+export function nearestBoat(boats, x, z, maxDist) {
+  let best = null;
+  let bestD = maxDist;
+  for (const b of boats) {
+    const d = Math.hypot(b.x - x, b.z - z);
+    if (d < bestD) { bestD = d; best = b; }
   }
-  return false;
+  return best;
 }

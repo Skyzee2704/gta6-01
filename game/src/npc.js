@@ -1,103 +1,82 @@
-// SOLMAR 3D — pedestrians. They walk the sidewalks, wear varied clothes,
-// and live in a population ring around the player. A gunshot or a speeding
-// car makes them flee; a car that hits one kills them and raises wanted.
-// Every ped is a boxy human at 1:7.5, never a blob.
-import { clamp, dist2 } from './random.js';
+// Pedestrians: the crowd that makes the city feel inhabited. They spawn in
+// a ring around the player, out of sight, and despawn when they fall far
+// behind — never popping in front of the camera. Each one is a box-built
+// person at 1:7.5, with varied clothes and a walk cycle.
+import { PLAYER } from './config.js';
+import { createRandom, floatBetween, pick, dist2d } from './random.js';
+import { MATERIALS } from './materials.js';
 
-const SHIRTS = [0xd85a4a, 0x4a7ad8, 0x5ad88a, 0xe8c94c, 0x9a5ad8, 0xe8e0d0, 0x3a3a3a, 0xd88a4a];
-const PANTS = [0x2a3a4a, 0x4a4a4a, 0x5a3a2a, 0x2a4a3a];
-const SKINS = [0xe8b98a, 0xc98f66, 0x8a5a3a, 0xf2c9a8];
-
-export function createPeds(state) {
-  state.peds = [];
-  state.pedTimer = 0;
+export function createPed(id, x, z, random) {
+  return {
+    id, x, z, heading: random() * Math.PI * 2,
+    speed: floatBetween(random, 1.1, 2.1), health: 100, dead: false,
+    skin: pick(random, MATERIALS.skinTones), hair: pick(random, MATERIALS.hairColors),
+    shirt: pick(random, MATERIALS.shirtColors), pants: pick(random, MATERIALS.pantsColors),
+    scale: floatBetween(random, 0.94, 1.06), walkTime: random() * 6,
+    targetX: x, targetZ: z, waitTimer: 0, fleeing: false,
+  };
 }
 
-function sidewalkPoint(state, rng) {
-  const road = rng.pick(state.city.roads);
-  const pts = road.points;
-  const i = rng.int(0, pts.length - 2);
-  const t = rng.next();
-  const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t;
-  const z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t;
-  // Offset to the sidewalk, perpendicular to the road.
-  const dx = pts[i + 1][0] - pts[i][0];
-  const dz = pts[i + 1][1] - pts[i][1];
-  const len = Math.hypot(dx, dz) || 1;
-  const side = rng.chance(0.5) ? 1 : -1;
-  return { x: x + (-dz / len) * 9.5 * side, z: z + (dx / len) * 9.5 * side, heading: Math.atan2(dx, dz) + (side > 0 ? 0 : Math.PI) };
-}
-
-export function stepPeds(state, dt) {
-  const rng = state.rng;
-  const p = state.player;
-  state.pedTimer -= dt;
-  if (state.pedTimer <= 0) {
-    state.pedTimer = 0.6;
-    const alive = state.peds.filter((x) => !x.dead && dist2(x.x, x.z, p.x, p.z) < 130 * 130);
-    // Corpses linger 25 s, then are cleaned up.
-    const fresh = state.peds.filter((x) => x.dead && state.time.elapsed - (x.deathTime || 0) < 25);
-    state.peds = alive.concat(fresh);
-    while (alive.length < 12) {
-      for (let tries = 0; tries < 5 && alive.length < 12; tries++) {
-        const spot = sidewalkPoint(state, rng);
-        if (dist2(spot.x, spot.z, p.x, p.z) < 40 * 40) continue;
-        if (dist2(spot.x, spot.z, p.x, p.z) > 130 * 130) continue;
-        const ped = {
-          id: 2000 + alive.length + Math.floor(rng.next() * 9000),
-          x: spot.x, z: spot.z, heading: spot.heading,
-          speed: rng.range(0.9, 1.5), shirt: rng.pick(SHIRTS), pants: rng.pick(PANTS),
-          skin: rng.pick(SKINS), walkPhase: rng.range(0, 6), dead: false, fleeing: false,
-          kind: 'civilian',
-        };
-        alive.push(ped);
-        state.peds.push(ped);
-      }
-      break;
-    }
+/** Keep the crowd ring full around the player, spawning out of sight. */
+export function maintainCrowd(peds, player, city, random, target) {
+  const want = target || 14;
+  // Despawn the far ones first.
+  for (let i = peds.length - 1; i >= 0; i -= 1) {
+    if (dist2d(peds[i].x, peds[i].z, player.x, player.z) > 120) peds.splice(i, 1);
   }
-  for (const ped of state.peds) {
+  let guard = 0;
+  while (peds.length < want && guard < 40) {
+    guard += 1;
+    const angle = random() * Math.PI * 2;
+    const dist = 55 + random() * 45;
+    const x = player.x + Math.cos(angle) * dist;
+    const z = player.z + Math.sin(angle) * dist;
+    if (Math.abs(x - 320) > 300 || Math.abs(z - 240) > 225) continue;
+    peds.push(createPed(peds.length, x, z, random));
+  }
+  return peds;
+}
+
+/** One crowd step: stroll, wait at corners, flee from gunfire. */
+export function stepPeds(peds, player, dt, gunfireAt, random) {
+  for (const ped of peds) {
     if (ped.dead) continue;
-    // Flee gunfire and speeding cars.
-    ped.fleeing = false;
-    if (state.combat.lastShotAt && state.time.elapsed - state.combat.lastShotAt < 2) {
-      if (dist2(ped.x, ped.z, state.combat.lastShotX, state.combat.lastShotZ) < 25 * 25) ped.fleeing = true;
+    ped.walkTime += dt;
+    if (gunfireAt && dist2d(ped.x, ped.z, gunfireAt.x, gunfireAt.z) < 26) ped.fleeing = true;
+    if (ped.fleeing) {
+      const away = Math.atan2(ped.x - player.x, ped.z - player.z);
+      ped.x += Math.sin(away) * 5.5 * dt;
+      ped.z += Math.cos(away) * 5.5 * dt;
+      ped.heading = away;
+      continue;
     }
-    const speed = ped.fleeing ? 3.4 : ped.speed;
-    ped.x += Math.sin(ped.heading) * speed * dt;
-    ped.z += Math.cos(ped.heading) * speed * dt;
-    ped.walkPhase += dt * speed * 2.4;
-    // Wander: small heading drift, turn around at the island edge.
-    ped.heading += (rng.next() - 0.5) * dt * 0.4;
-    const r = Math.hypot(ped.x, ped.z);
-    if (r > 225) ped.heading = Math.atan2(-ped.x, -ped.z);
-    // Keep peds out of buildings.
-    for (const b of state.city.buildings) {
-      if (Math.abs(ped.x - b.x) < b.w / 2 + 0.8 && Math.abs(ped.z - b.z) < b.d / 2 + 0.8) {
-        ped.heading += Math.PI / 2;
-        ped.x += Math.sin(ped.heading) * speed * dt * 2;
-        ped.z += Math.cos(ped.heading) * speed * dt * 2;
-        break;
-      }
+    if (ped.waitTimer > 0) {
+      ped.waitTimer -= dt;
+      continue;
     }
+    const d = dist2d(ped.x, ped.z, ped.targetX, ped.targetZ);
+    if (d < 1.5) {
+      // Seeded, never Math.random(): the shot gate requires two renders of
+      // the same staging to be byte-identical, and an unseeded wander
+      // target moves a pedestrian between the two captures.
+      ped.targetX = ped.x + (random() - 0.5) * 60;
+      ped.targetZ = ped.z + (random() - 0.5) * 60;
+      ped.waitTimer = 1 + random() * 4;
+      continue;
+    }
+    ped.heading = Math.atan2(ped.targetX - ped.x, ped.targetZ - ped.z);
+    ped.x += Math.sin(ped.heading) * ped.speed * dt;
+    ped.z += Math.cos(ped.heading) * ped.speed * dt;
   }
+  return peds;
 }
 
-export function nearestPed(state, x, z, maxDist) {
-  let best = null;
-  let bestD = maxDist * maxDist;
-  for (const ped of state.peds) {
-    if (ped.dead) continue;
-    const d = dist2(x, z, ped.x, ped.z);
-    if (d < bestD) { bestD = d; best = ped; }
-  }
-  return best;
+/** A pedestrian's walk swing, same shape as the player's. */
+export function pedSwing(ped) {
+  const phase = ped.walkTime * 7;
+  return { legL: Math.sin(phase) * 0.4, legR: -Math.sin(phase) * 0.4 };
 }
 
-export function countPedsInFrame(state) {
-  return state.peds.filter((x) => !x.dead).length;
-}
-
-export function clampPedSpeed(ped, max) {
-  ped.speed = clamp(ped.speed, 0.5, max);
+export function pedCount(peds) {
+  return peds.filter((p) => !p.dead).length;
 }

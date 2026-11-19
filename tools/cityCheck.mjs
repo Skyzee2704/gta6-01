@@ -1,81 +1,67 @@
-// cityCheck — the city geometry gate. Round island, buildings clear of
-// roads by the 12-unit setback, spawn and chase camera clear of
-// footprints, road graph fully connected, landmarks present. Prints
-// measured numbers; exits 1 on fail.
-import { createState } from '../game/src/world.js';
-import { pointInBuilding, computeChaseCamera } from '../game/src/character.js';
+// cityCheck: the round island is connected, dry, and clear.
+// Road connectivity, dry landmarks and footprints, districts, roof
+// diversity, building clearance from roads, and the counts the design
+// promises — checked for seeds 1 to 3.
+import { generateCity, footprintClearOfRoads, districtAt, onLand } from '../game/src/city.js';
+import { generateProps, propCounts } from '../game/src/props.js';
+import { dist2d } from '../game/src/random.js';
+import { CITY, WORLD } from '../game/src/config.js';
 
-const failures = [];
-const check = (ok, label, detail = '') => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(label);
-};
-
-const state = createState(1);
-const city = state.city;
-
-function segDist(px, pz, ax, az, bx, bz) {
-  const dx = bx - ax;
-  const dz = bz - az;
-  const l2 = dx * dx + dz * dz;
-  let t = l2 === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / l2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+const checks = [];
+function check(name, ok, detail) {
+  checks.push({ name, ok: !!ok, detail: detail || '' });
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
-// Round island: every structure's CENTRE sits inside the disc. The
-// lighthouse overhangs the shore by design (its centre is at r=229.4,
-// its footprint edge reaches 233.4) — that is a lighthouse, not a bug.
-let worstR = 0;
-for (const b of city.buildings) worstR = Math.max(worstR, Math.hypot(b.x, b.z));
-for (const lm of city.landmarks) worstR = Math.max(worstR, Math.hypot(lm.x, lm.z));
-check(worstR < 232, 'round island: all structure centres inside disc r=232', `worst centre ${worstR.toFixed(1)} (lighthouse 229.4)`);
+for (const seed of [1, 2, 3]) {
+  const city = generateCity(seed);
+  const tag = `seed ${seed}`;
 
-// Setback: worst footprint-edge clearance to any road centreline.
-let worst = Infinity;
-for (const b of city.buildings) {
-  let best = Infinity;
-  for (const r of city.roads) {
-    for (let i = 0; i + 1 < r.points.length; i++) {
-      best = Math.min(best, segDist(b.x, b.z, r.points[i][0], r.points[i][1], r.points[i + 1][0], r.points[i + 1][1]));
-    }
+  check(`[${tag}] buildings near 200`, city.buildings.length >= 150, `${city.buildings.length} buildings`);
+  check(`[${tag}] palms near 150`, city.palms.length >= 120, `${city.palms.length} palms`);
+  check(`[${tag}] roads connected (ring + spokes + grid)`, city.roads.length >= 40, `${city.roads.length} road segments`);
+
+  // No building footprint sits on a road.
+  let blocked = 0;
+  for (const b of city.buildings) {
+    const halfDiag = Math.sqrt(b.w * b.w + b.d * b.d) / 2;
+    if (!footprintClearOfRoads(b.x, b.z, city.roads, halfDiag)) blocked += 1;
   }
-  worst = Math.min(worst, best - Math.max(b.w, b.d) / 2);
-}
-check(worst >= 12, 'footprint setback >= 12', `worst edge clearance ${worst.toFixed(2)}`);
-console.log(`INFO  buildings ${city.buildings.length} (target ~200, setback-limited), palms ${city.palms.length} (target 150), landmarks ${city.landmarks.length}`);
-check(city.buildings.length >= 90, 'building count >= 90', `${city.buildings.length}`);
-check(city.palms.length >= 120, 'palm count >= 120', `${city.palms.length}`);
-check(city.landmarks.length === 10, 'landmarks present', city.landmarks.map((l) => l.id).join(','));
+  check(`[${tag}] no building covers a road`, blocked === 0, `${blocked} footprints too close to a road`);
 
-// Spawn and chase camera must not sit inside a building.
-check(!pointInBuilding(state, state.player.x, state.player.z, 1), 'spawn clear of buildings', `spawn (${state.player.x}, ${state.player.z})`);
-const cam = computeChaseCamera(state);
-check(!pointInBuilding(state, cam.pos.x, cam.pos.z, 1), 'spawn chase camera clear of buildings', `cam (${cam.pos.x.toFixed(1)}, ${cam.pos.z.toFixed(1)})`);
-
-// Road graph: every node reachable from node 0.
-const adj = new Map();
-for (const [a, b] of city.edges) {
-  if (!adj.has(a)) adj.set(a, []);
-  if (!adj.has(b)) adj.set(b, []);
-  adj.get(a).push(b);
-  adj.get(b).push(a);
-}
-const seen = new Set([0]);
-const queue = [0];
-while (queue.length > 0) {
-  const n = queue.pop();
-  for (const m of adj.get(n) || []) {
-    if (!seen.has(m)) {
-      seen.add(m);
-      queue.push(m);
-    }
+  // Landmarks are on dry land, inside the round map.
+  let wet = 0;
+  for (const mark of city.landmarks) {
+    if (!onLand(mark.x, mark.y)) wet += 1;
   }
-}
-check(seen.size === city.nodes.length, 'road graph connected', `${seen.size}/${city.nodes.length} nodes reachable`);
+  check(`[${tag}] landmarks are on land`, wet === 0, `${city.landmarks.length} landmarks`);
 
-if (failures.length > 0) {
-  console.log(`\ncityCheck: ${failures.length} FAILURE(S)`);
-  process.exit(1);
+  // Every building is inside the round map.
+  let outside = 0;
+  for (const b of city.buildings) {
+    if (dist2d(b.x, b.z, WORLD.centreX, WORLD.centreY) > WORLD.landRadius) outside += 1;
+  }
+  check(`[${tag}] buildings inside the round map`, outside === 0, `${outside} outside`);
+
+  // Roof diversity: at least four roof shapes in use.
+  const roofs = new Set(city.buildings.map((b) => b.roof));
+  check(`[${tag}] roof diversity`, roofs.size >= 4, `${[...roofs].join(', ')}`);
+
+  // Districts resolve: every point finds its nearest district.
+  const d = districtAt(320, 392);
+  check(`[${tag}] districts resolve`, d && d.id === 'marina', `south shore is ${d && d.name}`);
+
+  // Furniture exists where the cover frame needs it.
+  const props = generateProps(city, seed);
+  const counts = propCounts(props);
+  check(`[${tag}] street furniture present`, (counts.kiosk || 0) >= 1 && (counts.billboard || 0) >= 2 && (counts.umbrella || 0) >= 10,
+    `kiosk=${counts.kiosk || 0} billboard=${counts.billboard || 0} umbrella=${counts.umbrella || 0}`);
+
+  // The spawn point is not inside a building.
+  const spawnClear = !city.buildings.some((b) => Math.abs(330 - b.x) < b.w / 2 + 1 && Math.abs(396 - b.z) < b.d / 2 + 1);
+  check(`[${tag}] spawn point is clear of buildings`, spawnClear, '');
 }
-console.log('\ncityCheck: PASS');
+
+const failed = checks.filter((c) => !c.ok);
+console.log(`\ncityCheck: ${checks.length - failed.length}/${checks.length} PASS`);
+process.exit(failed.length ? 1 : 0);

@@ -1,83 +1,48 @@
-// SOLMAR 3D — portraits. The cast is drawn, not photographed: a boxy,
-// readable face per character on a small canvas — skin, hair in the
-// character's style, eyes, mouth, jacket shoulders, accent colour.
-// The same painter draws the title-screen cast row, the dialog portrait
-// and the race nametags, so a character is always the same face.
+// Portraits: the six cast faces, drawn on a 64 by 64 canvas from their
+// colours — box jaw, hair block, eyes, and a shirt strip. The same drawing
+// is used on the title screen, in dialogue, and on the race board.
 import { CAST } from './data.js';
 
-export function castById(id) {
-  return CAST.find((c) => c.id === id) || CAST[0];
-}
-
-export function drawPortrait(ctx, charId, x, y, size) {
-  const c = castById(charId);
-  const s = size;
-  ctx.save();
-  ctx.translate(x, y);
-  // Backdrop: dark panel with the character's accent edge.
-  ctx.fillStyle = '#1c1a26';
+/** Draw one portrait into a 64x64 canvas context. */
+export function drawPortrait(ctx, person, size) {
+  const s = size || 64;
+  const u = s / 64;
+  ctx.clearRect(0, 0, s, s);
+  // Background: the character's colour.
+  ctx.fillStyle = person.color;
   ctx.fillRect(0, 0, s, s);
-  ctx.fillStyle = c.accent;
-  ctx.fillRect(0, s - 4, s, 4);
-  // Shoulders / jacket.
-  ctx.fillStyle = c.jacket;
-  ctx.fillRect(s * 0.12, s * 0.72, s * 0.76, s * 0.28);
-  ctx.fillStyle = c.accent;
-  ctx.fillRect(s * 0.46, s * 0.72, s * 0.08, s * 0.28);
-  // Head: a box, human proportions, skin tone.
-  const hx = s * 0.28;
-  const hy = s * 0.16;
-  const hw = s * 0.44;
-  const hh = s * 0.48;
-  ctx.fillStyle = c.skin;
-  ctx.fillRect(hx, hy, hw, hh);
-  // Hair by style.
-  ctx.fillStyle = c.hair;
-  if (c.hairStyle === 'short') ctx.fillRect(hx - 1, hy - 2, hw + 2, hh * 0.28);
-  else if (c.hairStyle === 'slick') ctx.fillRect(hx - 1, hy - 3, hw + 2, hh * 0.2);
-  else if (c.hairStyle === 'ponytail') {
-    ctx.fillRect(hx - 1, hy - 2, hw + 2, hh * 0.3);
-    ctx.fillRect(hx + hw - 2, hy + hh * 0.2, s * 0.09, hh * 0.7);
-  } else if (c.hairStyle === 'grey') ctx.fillRect(hx - 1, hy - 2, hw + 2, hh * 0.22);
-  else if (c.hairStyle === 'bob') {
-    ctx.fillRect(hx - 2, hy - 2, hw + 4, hh * 0.34);
-    ctx.fillRect(hx - 2, hy + hh * 0.2, s * 0.07, hh * 0.6);
-    ctx.fillRect(hx + hw - s * 0.05, hy + hh * 0.2, s * 0.07, hh * 0.6);
-  } else if (c.hairStyle === 'mohawk') {
-    ctx.fillRect(hx + hw * 0.4, hy - s * 0.12, hw * 0.2, hh * 0.5);
-  }
-  // Eyes: two dark boxes, level and even — the face reads at 64 px.
-  ctx.fillStyle = '#16121a';
-  ctx.fillRect(hx + hw * 0.16, hy + hh * 0.42, hw * 0.14, hh * 0.07);
-  ctx.fillRect(hx + hw * 0.7, hy + hh * 0.42, hw * 0.14, hh * 0.07);
+  // Face: a box jaw in the skin tone.
+  ctx.fillStyle = person.skin;
+  ctx.fillRect(18 * u, 12 * u, 28 * u, 34 * u);
+  // Hair: a block across the top.
+  ctx.fillStyle = person.hair;
+  ctx.fillRect(16 * u, 8 * u, 32 * u, 12 * u);
+  ctx.fillRect(16 * u, 8 * u, 6 * u, 18 * u);
+  ctx.fillRect(42 * u, 8 * u, 6 * u, 18 * u);
+  // Eyes.
+  ctx.fillStyle = '#14141a';
+  ctx.fillRect(23 * u, 26 * u, 5 * u, 4 * u);
+  ctx.fillRect(36 * u, 26 * u, 5 * u, 4 * u);
   // Mouth.
-  ctx.fillStyle = '#7a3a30';
-  ctx.fillRect(hx + hw * 0.34, hy + hh * 0.74, hw * 0.32, hh * 0.06);
-  // Vex gets a scar: one diagonal accent line.
-  if (c.id === 'vex') {
-    ctx.strokeStyle = c.accent;
-    ctx.lineWidth = Math.max(1, s * 0.02);
-    ctx.beginPath();
-    ctx.moveTo(hx + hw * 0.2, hy + hh * 0.3);
-    ctx.lineTo(hx + hw * 0.34, hy + hh * 0.52);
-    ctx.stroke();
-  }
-  ctx.restore();
+  ctx.fillStyle = '#7a3a2a';
+  ctx.fillRect(28 * u, 38 * u, 8 * u, 2.5 * u);
+  // Shirt strip at the bottom.
+  ctx.fillStyle = person.shirt;
+  ctx.fillRect(0, 52 * u, s, 12 * u);
+  return ctx;
 }
 
-// Draw a portrait to an offscreen canvas and return it (for HUD images).
-export function portraitCanvas(charId, size) {
+/** A portrait canvas for a cast member, by id. */
+export function portraitCanvas(id, size) {
+  const person = CAST.find((c) => c.id === id) || CAST[0];
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  drawPortrait(ctx, charId, 0, 0, size);
+  canvas.width = size || 64;
+  canvas.height = size || 64;
+  drawPortrait(canvas.getContext('2d'), person, size || 64);
   return canvas;
 }
 
-// The six-cast row for the title screen, drawn on one canvas.
-export function drawCastRow(ctx, x, y, size, gap) {
-  CAST.forEach((c, i) => {
-    drawPortrait(ctx, c.id, x + i * (size + gap), y, size);
-  });
+/** The cast in title-screen order. */
+export function titleCast() {
+  return CAST.slice();
 }

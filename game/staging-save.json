@@ -2,82 +2,59 @@
   "version": 1,
   "cash": 12950,
   "respect": 1770,
-  "respectTitle": "Big Shot",
-  "health": 100,
-  "armor": 0,
-  "x": -15.49093781129352,
-  "z": 50.894137734166854,
-  "heading": 12.180696201703107,
-  "hour": 18.6,
   "day": 3,
-  "weaponsOwned": [
-    "pistol",
-    "smg",
-    "vk47",
-    "shotgun",
-    "sniper"
-  ],
-  "ammo": {
-    "pistol": {
-      "mag": 12,
-      "reserve": 120
-    },
-    "smg": {
-      "mag": 32,
-      "reserve": 160
-    },
-    "vk47": {
-      "mag": 12,
-      "reserve": 90
-    },
-    "shotgun": {
-      "mag": 6,
-      "reserve": 36
-    },
-    "sniper": {
-      "mag": 5,
-      "reserve": 25
-    },
-    "grenade": {
-      "mag": 1,
-      "reserve": 8
-    },
-    "molotov": {
-      "mag": 1,
-      "reserve": 6
-    }
-  },
-  "currentWeapon": "vk47",
-  "missionsCompleted": [
+  "hour": 18.6,
+  "missionsDone": [
     1,
     2,
     3,
     4,
     5
   ],
-  "postcardsFound": [
-    "Marina Pier",
-    "Downtown Bank Tower",
-    "Neon Mile Diner",
-    "Old Town Bells",
-    "Palm Beach Surf",
-    "Harbor Cranes",
-    "Ferris Wheel",
-    "Gold Street"
+  "mission": 6,
+  "postcards": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
   ],
-  "penthouseOwned": true,
-  "racesWon": 0,
-  "stats": {
-    "distanceDriven": 2998.046016425274,
-    "distanceWalked": 660.520000002093,
-    "carsStolen": 1,
-    "pursuitsEscaped": 0,
-    "racesWon": 0,
-    "taxiFares": 0,
-    "kills": 11,
-    "shotsFired": 18,
-    "shotsHit": 18,
-    "missionsDone": 5,
-    "timePlayedSeconds": 472.69999999989875
-  }
+  "racesWon": 2,
+  "penthouse": true,
+  "garage": true,
+  "owned": [
+    "fists",
+    "pistol",
+    "smg",
+    "rifle",
+    "shotgun"
+  ],
+  "ammo": {
+    "pistol": [
+      12,
+      60
+    ],
+    "smg": [
+      32,
+      128
+    ],
+    "rifle": [
+      30,
+      90
+    ],
+    "shotgun": [
+      6,
+      24
+    ],
+    "sniper": [
+      0,
+      0
+    ]
+  },
+  "playerX": 330,
+  "playerZ": 396,
+  "playMinutes": 0
 }

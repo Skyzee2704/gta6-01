@@ -1,10 +1,9 @@
-// Seeded randomness for SOLMAR 3D. Everything the game generates — city,
-// traffic, pedestrians, weather drift — comes from a seed, so the same
-// seed always builds the same city and the same shot renders identically.
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a |= 0;
+// A small seeded random number generator (mulberry32): the same seed gives the
+// same city, the same traffic and the same screenshot, which is what makes the
+// staged scenes repeatable. Nothing here touches the browser or the clock.
+export function createRandom(seed) {
+  let a = seed | 0;
+  return function random() {
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -12,78 +11,53 @@ export function mulberry32(seed) {
   };
 }
 
-export function hashString(text) {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+/** A whole number from min to max, inclusive, from the seeded stream. */
+export function intBetween(random, min, max) {
+  return min + Math.floor(random() * (max - min + 1));
+}
+
+/** A real number between min and max, from the seeded stream. */
+export function floatBetween(random, min, max) {
+  return min + random() * (max - min);
+}
+
+/** One element of a list, picked by the seeded stream. */
+export function pick(random, list) {
+  return list[Math.floor(random() * list.length)];
+}
+
+/** A shuffled copy of a list, using the seeded stream. */
+export function shuffled(random, list) {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
   }
-  return h >>> 0;
+  return out;
 }
 
-export function makeRng(seed) {
-  const next = mulberry32(typeof seed === 'string' ? hashString(seed) : seed);
-  return {
-    next,
-    range(min, max) {
-      return min + next() * (max - min);
-    },
-    int(min, max) {
-      return Math.floor(this.range(min, max + 1));
-    },
-    pick(list) {
-      return list[Math.floor(next() * list.length)];
-    },
-    chance(p) {
-      return next() < p;
-    },
-    // Cheap deterministic bell-ish value in [-1, 1].
-    normal() {
-      return (next() + next() + next() - 1.5) / 1.5;
-    },
-    shuffle(list) {
-      const out = list.slice();
-      for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(next() * (i + 1));
-        const tmp = out[i];
-        out[i] = out[j];
-        out[j] = tmp;
-      }
-      return out;
-    },
-  };
+/** Clamp a value into a range. */
+export function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value;
 }
 
-// Deterministic value-noise in 1D: smooth, repeatable, no lookup tables.
-export function noise1(x) {
-  const xi = Math.floor(x);
-  const xf = x - xi;
-  const h = (n) => {
-    const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-    return s - Math.floor(s);
-  };
-  const u = xf * xf * (3 - 2 * xf);
-  return h(xi) * (1 - u) + h(xi + 1) * u;
-}
-
-// Clamp + lerp helpers used across sim and render.
-export function clamp(v, min, max) {
-  return v < min ? min : v > max ? max : v;
-}
+/** Linear interpolation between two values. */
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
-export function lerpAngle(a, b, t) {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
+
+/** Wrap an angle into the -PI..PI range. */
+export function wrapAngle(angle) {
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  while (angle < -Math.PI) angle += Math.PI * 2;
+  return angle;
 }
-export function dist2(ax, az, bx, bz) {
+
+/** Distance between two points on the ground plane. */
+export function dist2d(ax, az, bx, bz) {
   const dx = ax - bx;
   const dz = az - bz;
-  return dx * dx + dz * dz;
-}
-export function angleTo(ax, az, bx, bz) {
-  return Math.atan2(bx - ax, bz - az);
+  return Math.sqrt(dx * dx + dz * dz);
 }

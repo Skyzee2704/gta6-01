@@ -1,187 +1,119 @@
-// SOLMAR 3D — the minimap. Round, like the island; it rotates so the
-// player's heading is always up. Water ring, roads, the mission marker,
-// police dots, the search zone — and the P1 fix: label collision
-// resolution. Each label tries an offset ladder [0, ±16, ±32, ±48,
-// ±64] and takes the first spot that does not overlap a label already
-// placed, so "Penthouse Tower" is never hidden under "Downtown Bank"
-// again.
-import { drawPortrait } from './portraits.js';
+// The minimap: a round radar that turns with the player's heading, with
+// a health arc and an armour arc on its rim, a respect ring, mission blips
+// that stick to the edge when they are out of range, and the police search
+// zone as a shaded area while wanted is active.
+import { WORLD } from './config.js';
+import { districtAt } from './city.js';
+import { dist2d } from './random.js';
 
-const OFFSET_LADDER = [0, 16, -16, 32, -32, 48, -48, 64, -64];
+export function createMinimap(canvas) {
+  return { canvas, ctx: canvas.getContext('2d'), range: 130 };
+}
 
-export function drawMinimap(ctx, state, cx, cy, radius) {
-  const p = state.player;
-  const view = 110; // world units visible across the radius
-  const scale = radius / view;
+/** Draw the radar. `blips` is a list of {x, z, color, kind}. */
+export function drawMinimap(map, state, blips) {
+  const { ctx, canvas, range } = map;
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = Math.min(w, h) / 2 - 4;
+  const player = state.player;
+  ctx.clearRect(0, 0, w, h);
   ctx.save();
-  // Round clip.
   ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.clip();
-  // Water background, then the island disc.
-  ctx.fillStyle = '#1a3a55';
-  ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-p.heading);
-  ctx.scale(scale, scale);
-  ctx.translate(-p.x, -p.z);
-  // Island.
-  ctx.fillStyle = '#4a6a3f';
+
+  // Ground: land disc, sea ring, roads as faint lines.
+  ctx.fillStyle = '#1d4e6b';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#3a5a3a';
   ctx.beginPath();
-  ctx.arc(0, 0, 232, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#d8c48f';
-  ctx.beginPath();
-  ctx.arc(0, 0, 232, 0, Math.PI * 2);
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = '#d8c48f';
-  ctx.stroke();
-  // Roads.
-  ctx.strokeStyle = '#232326';
-  ctx.lineWidth = 10;
-  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(200,200,200,0.5)';
+  ctx.lineWidth = 2;
   for (const road of state.city.roads) {
+    const ax = cx + ((road.x1 - player.x) / range) * r;
+    const ay = cy + ((road.z1 - player.z) / range) * r;
+    const bx = cx + ((road.x2 - player.x) / range) * r;
+    const by = cy + ((road.z2 - player.z) / range) * r;
     ctx.beginPath();
-    road.points.forEach(([x, z], i) => {
-      if (i === 0) ctx.moveTo(x, z);
-      else ctx.lineTo(x, z);
-    });
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
     ctx.stroke();
   }
-  // Search zone, when the police are hunting.
-  if (state.police.searchZone) {
-    const sz = state.police.searchZone;
-    ctx.fillStyle = 'rgba(216,58,42,0.25)';
+
+  // Police search zone: a shaded circle while wanted is active.
+  if (player.wanted > 0) {
+    ctx.fillStyle = 'rgba(255,59,48,0.18)';
     ctx.beginPath();
-    ctx.arc(sz.x, sz.z, sz.r, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 0.62, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#d83a2a';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,59,48,0.7)';
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Blips, clamped to the rim when they are out of range.
+  for (const blip of blips || []) {
+    let dx = (blip.x - player.x) / range;
+    let dz = (blip.z - player.z) / range;
+    const d = Math.hypot(dx, dz);
+    if (d > 0.92) { dx = (dx / d) * 0.92; dz = (dz / d) * 0.92; }
+    ctx.fillStyle = blip.color || '#ffd23e';
+    ctx.beginPath();
+    ctx.arc(cx + dx * r, cy + dz * r, blip.kind === 'mission' ? 6 : 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-  // Mission marker.
-  if (state.missions.marker) {
-    const m = state.missions.marker;
-    ctx.fillStyle = '#ffd34a';
-    ctx.save();
-    ctx.translate(m.x, m.z);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-6, -6, 12, 12);
-    ctx.restore();
-  }
-  // Police units: blue dots. Heli: red dot.
-  for (const u of state.police.units) {
-    ctx.fillStyle = '#4a8ad8';
-    ctx.beginPath();
-    ctx.arc(u.x, u.z, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (state.police.heli) {
-    ctx.fillStyle = '#ff4a4a';
-    ctx.beginPath();
-    ctx.arc(state.police.heli.x, state.police.heli.z, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Postcards not yet found.
-  ctx.fillStyle = '#ffd34a';
-  for (const pc of state.city.postcards) {
-    if (state.postcardsFound.has(pc.id)) continue;
-    ctx.beginPath();
-    ctx.arc(pc.x, pc.z, 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-  // The player arrow, always pointing up in the middle.
-  ctx.fillStyle = '#ffffff';
+
+  // The player is a white arrow in the middle, pointing up the heading.
+  ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 10);
-  ctx.lineTo(cx - 7, cy + 7);
-  ctx.lineTo(cx + 7, cy + 7);
+  ctx.moveTo(cx, cy - 8);
+  ctx.lineTo(cx + 5, cy + 6);
+  ctx.lineTo(cx - 5, cy + 6);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = '#16121a';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // Rim + north tick.
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(242,234,216,0.8)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = '#ffd34a';
-  ctx.font = 'bold 12px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText('N', cx, cy - radius + 14);
-  // Labels, in screen space, collision-resolved.
-  drawMinimapLabels(ctx, state, cx, cy, radius, scale, view);
   ctx.restore();
+
+  // Rim: health arc in green, armour arc in blue, respect ring in gold.
+  const rim = r + 2;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#2ecc71';
+  ctx.beginPath();
+  ctx.arc(cx, cy, rim, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * player.health) / 100);
+  ctx.stroke();
+  ctx.strokeStyle = '#3a7bff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, rim + 5, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * (player.armor || 0)) / 100);
+  ctx.stroke();
+  ctx.strokeStyle = '#ffb02e';
+  ctx.beginPath();
+  ctx.arc(cx, cy, rim + 10, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, (state.economy.respect || 0) / 3800)));
+  ctx.stroke();
+
+  // District name under the radar.
+  const district = districtAt(player.x, player.z);
+  ctx.fillStyle = '#f5efe4';
+  ctx.font = 'bold 13px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(district.name, cx, h - 6);
+  return district;
 }
 
-function worldToMinimap(state, x, z, cx, cy, scale) {
-  const p = state.player;
-  const dx = x - p.x;
-  const dz = z - p.z;
-  const cos = Math.cos(-p.heading);
-  const sin = Math.sin(-p.heading);
-  const rx = dx * cos - dz * sin;
-  const rz = dx * sin + dz * cos;
-  return { x: cx + rx * scale, y: cy + rz * scale };
-}
-
-function drawMinimapLabels(ctx, state, cx, cy, radius, scale, view) {
-  ctx.font = 'bold 11px Arial';
-  ctx.textAlign = 'left';
-  const placed = [];
-  const labels = [];
-  for (const lm of state.city.landmarks) {
-    labels.push({ name: lm.name, x: lm.x, z: lm.z, priority: lm.id === 'penthouse' ? 0 : 1 });
-  }
-  labels.push({ name: 'Marina Boulevard', x: 182, z: 40, priority: 2 });
-  labels.push({ name: 'Neon Mile', x: -60, z: 40, priority: 2 });
-  labels.push({ name: 'Gold Street', x: -8, z: -60, priority: 2 });
-  labels.sort((a, b) => a.priority - b.priority);
-  for (const lb of labels) {
-    const pos = worldToMinimap(state, lb.x, lb.z, cx, cy, scale);
-    if (Math.hypot(pos.x - cx, pos.y - cy) > radius - 8) continue;
-    const w = ctx.measureText(lb.name).width;
-    const h = 12;
-    let placedRect = null;
-    for (const off of OFFSET_LADDER) {
-      const rect = { x: pos.x + 8, y: pos.y - 6 + off, w: w + 4, h };
-      // Clamp inside the minimap CIRCLE before the overlap test, so a
-      // placed label is guaranteed both visible and non-overlapping.
-      // The circle narrows toward its top and bottom, so the allowed
-      // width is the circle's half-width at the label's own height —
-      // a square (cx±radius) clamp let "The Lighthouse" sit at the
-      // top where the circle is only ~41 px wide, and the clip cut
-      // it mid-word. An offset whose height cannot fit the label is
-      // skipped, and the ladder tries a lower one where the circle
-      // is wider.
-      const midY = rect.y + rect.h / 2;
-      const dy = midY - cy;
-      if (Math.abs(dy) >= radius - 4) continue;
-      const hw = Math.sqrt(radius * radius - dy * dy);
-      if (rect.w > 2 * hw - 8) continue;
-      rect.x = Math.max(cx - hw + 4, Math.min(rect.x, cx + hw - rect.w - 4));
-      rect.y = Math.max(cy - radius + 4, Math.min(rect.y, cy + radius - rect.h - 4));
-      const overlaps = placed.some((r) =>
-        rect.x < r.x + r.w && rect.x + rect.w > r.x &&
-        rect.y < r.y + r.h && rect.y + rect.h > r.y);
-      if (!overlaps) {
-        placedRect = rect;
-        break;
-      }
-    }
-    if (!placedRect) continue;
-    placed.push(placedRect);
-    ctx.fillStyle = 'rgba(16,14,24,0.75)';
-    ctx.fillRect(placedRect.x - 2, placedRect.y - 1, placedRect.w, placedRect.h);
-    ctx.fillStyle = '#f2ead8';
-    ctx.fillText(lb.name, placedRect.x, placedRect.y + 10);
-  }
-}
-
-export function drawMinimapPortrait(ctx, state, x, y, size) {
-  drawPortrait(ctx, 'milo', x, y, size);
+/** Blips for the current frame: mission, police, postcards, shops. */
+export function minimapBlips(state) {
+  const blips = [];
+  const step = state.missions.active ? state.missions.active.steps[state.missions.stepIndex] : null;
+  if (step) blips.push({ x: step.x, z: step.y, color: '#ffd23e', kind: 'mission' });
+  for (const unit of state.police) blips.push({ x: unit.x, z: unit.z, color: '#3a7bff', kind: 'police' });
+  return blips;
 }

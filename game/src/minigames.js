@@ -1,110 +1,106 @@
-// SOLMAR 3D — minigames. Taxi fares and the Neon Nights arcade.
-// A taxi fare is a real drive: pick a passenger up, take them to the
-// marker, get paid by the meter. The arcade is a reaction game at the
-// diner: stop the sweep in the gold zone, ten rounds, paid in cash.
-import { addCash, taxiFare } from './economy.js';
+// Side activities: taxi fares, the twenty postcard tapes, street races,
+// Pay n Spray resprays, the penthouse and the garage. The city pays for
+// playing around, not just for story jobs.
+import { POSTCARDS, RACE_ROUTES } from './data.js';
+import { taxiFare } from './economy.js';
+import { dist2d } from './random.js';
 
-export function createMinigames(state) {
-  state.taxi = { active: false, dest: null, fare: 0, passenger: null };
-  state.arcade = { active: false, round: 0, score: 0, sweep: 0, sweepDir: 1, result: null };
+export { POSTCARDS };
+
+/** Taxi: pick up a fare, drive them to the pin, get paid by the metre. */
+export function createTaxiJob() {
+  return { active: false, pickupX: 0, pickupZ: 0, dropX: 0, dropZ: 0, passenger: false, fare: 0 };
 }
 
-const TAXI_DESTS = [
-  { name: 'Downtown Bank Tower', x: 30, z: -70 },
-  { name: 'Neon Mile Diner', x: -60, z: 40 },
-  { name: 'Palm Beach', x: 60, z: 150 },
-  { name: 'Harbor Market', x: -90, z: -140 },
-  { name: 'Penthouse Tower', x: 120, z: -40 },
-  { name: 'Old Town Bells', x: -150, z: -30 },
-];
-
-export function tryStartTaxi(state) {
-  const p = state.player;
-  if (p.onFoot || !p.vehicleId) return false;
-  const v = state.vehicles.find((x) => x.id === p.vehicleId);
-  if (!v || v.type !== 'taxi') return false;
-  if (state.taxi.active) return false;
-  const dest = state.rng.pick(TAXI_DESTS);
-  const dist = Math.round(Math.hypot(dest.x - p.x, dest.z - p.z));
-  state.taxi = {
-    active: true, dest, fare: taxiFare(dist),
-    passenger: `Passenger to ${dest.name}`,
-  };
-  state.notices.push({ text: `Taxi fare: ${dest.name} — $${state.taxi.fare}`, ttl: 4 });
-  return true;
+export function startTaxiJob(job, player, random) {
+  const angle = random() * Math.PI * 2;
+  job.pickupX = player.x + Math.cos(angle) * (40 + random() * 80);
+  job.pickupZ = player.z + Math.sin(angle) * (40 + random() * 80);
+  const dropAngle = random() * Math.PI * 2;
+  job.dropX = 320 + Math.cos(dropAngle) * 140;
+  job.dropZ = 240 + Math.sin(dropAngle) * 105;
+  job.active = true;
+  job.passenger = false;
+  job.fare = 0;
+  return job;
 }
 
-export function stepTaxi(state, dt) {
-  const t = state.taxi;
-  if (!t.active) return;
-  const p = state.player;
-  const d = Math.hypot(p.x - t.dest.x, p.z - t.dest.z);
-  if (d < 8) {
-    addCash(state, t.fare, `Taxi fare — ${t.dest.name}`);
-    state.notices.push({ text: `Fare complete — $${t.fare}. "Keep the change."`, ttl: 3 });
-    state.taxi = { active: false, dest: null, fare: 0, passenger: null };
+export function stepTaxiJob(job, player) {
+  if (!job.active) return 0;
+  if (!job.passenger && dist2d(player.x, player.z, job.pickupX, job.pickupZ) < 6) {
+    job.passenger = true;
+    return 0;
   }
-  void dt;
+  if (job.passenger && dist2d(player.x, player.z, job.dropX, job.dropZ) < 7) {
+    job.active = false;
+    job.passenger = false;
+    const fare = taxiFare(dist2d(job.pickupX, job.pickupZ, job.dropX, job.dropZ));
+    job.fare = fare;
+    return fare;
+  }
+  return 0;
 }
 
-export function taxiMarker(state) {
-  return state.taxi.active ? state.taxi.dest : null;
+/** Postcard tapes: walk close to one to collect it. Returns the tape or null. */
+export function collectPostcard(found, x, z) {
+  for (const card of POSTCARDS) {
+    if (found.includes(card.id)) continue;
+    if (dist2d(x, z, card.x, card.y) < 5) return card;
+  }
+  return null;
 }
 
-// Neon Nights arcade: the sweep runs left to right; press Space when
-// it is inside the gold zone. Ten rounds, then the payout.
-export function tryStartArcade(state) {
-  const p = state.player;
-  const d = Math.hypot(p.x - -40, p.z - 30);
-  if (d > 12 || !p.onFoot) return false;
-  if (state.arcade.active) return false;
-  state.arcade = { active: true, round: 1, score: 0, sweep: 0, sweepDir: 1, result: null };
-  state.notices.push({ text: 'Neon Nights — stop the sweep in the gold zone!', ttl: 4 });
-  return true;
+/** Pay n Spray: a respray clears the wanted level for a flat price. */
+export function resprayPrice() {
+  return 120;
 }
 
-export function stepArcade(state, dt, spacePressed) {
-  const a = state.arcade;
-  if (!a.active) return;
-  a.sweep += a.sweepDir * dt * 1.6;
-  if (a.sweep > 1) { a.sweep = 1; a.sweepDir = -1; }
-  if (a.sweep < 0) { a.sweep = 0; a.sweepDir = 1; }
-  if (spacePressed) {
-    const inGold = a.sweep > 0.42 && a.sweep < 0.58;
-    const inNear = a.sweep > 0.34 && a.sweep < 0.66;
-    const pts = inGold ? 100 : inNear ? 40 : 0;
-    a.score += pts;
-    a.result = inGold ? 'PERFECT +100' : inNear ? 'GOOD +40' : 'MISS';
-    a.round += 1;
-    a.sweep = 0;
-    a.sweepDir = 1;
-    if (a.round > 10) {
-      const payout = Math.round(a.score * 0.5);
-      addCash(state, payout, `Neon Nights — score ${a.score}`);
-      state.notices.push({ text: `Arcade over — score ${a.score}, won $${payout}.`, ttl: 4 });
-      state.arcade = { active: false, round: 0, score: 0, sweep: 0, sweepDir: 1, result: null };
+export function canRespray(cash) {
+  return cash >= resprayPrice();
+}
+
+/** The race routes, for the race board and the minimap. */
+export function raceRoutes() {
+  return RACE_ROUTES;
+}
+
+/** A street race: laps, checkpoints and live standings. */
+export function createRace(routeId) {
+  const route = RACE_ROUTES.find((r) => r.id === routeId) || RACE_ROUTES[0];
+  return {
+    route, lap: 1, checkpoint: 0, time: 0, finished: false,
+    rivals: [
+      { name: 'Neri Flint', progress: 0, lap: 1 },
+      { name: 'Zella Coil', progress: 0, lap: 1 },
+      { name: 'Ivo Switch', progress: 0, lap: 1 },
+    ],
+    playerProgress: 0,
+  };
+}
+
+export function stepRace(race, player, dt, random) {
+  if (race.finished) return race;
+  race.time += dt;
+  const points = race.route.path;
+  const target = points[race.checkpoint % points.length];
+  if (dist2d(player.x, player.z, target[0], target[1]) < 12) {
+    race.checkpoint += 1;
+    race.playerProgress += 1;
+    if (race.checkpoint % points.length === 0) {
+      race.lap += 1;
+      if (race.lap > race.route.laps) race.finished = true;
     }
   }
+  for (const rival of race.rivals) {
+    rival.progress += dt * (0.9 + random() * 0.25);
+  }
+  return race;
 }
 
-export function drawArcade(ctx, state, W, H) {
-  const a = state.arcade;
-  if (!a.active) return;
-  const bw = 420;
-  const bx = (W - bw) / 2;
-  const by = 140;
-  ctx.fillStyle = 'rgba(16,14,24,0.88)';
-  ctx.fillRect(bx, by, bw, 90);
-  ctx.fillStyle = '#ffd34a';
-  ctx.font = 'bold 15px Arial';
-  ctx.fillText(`NEON NIGHTS — ROUND ${a.round}/10   SCORE ${a.score}`, bx + 16, by + 26);
-  ctx.fillStyle = '#2a2a30';
-  ctx.fillRect(bx + 16, by + 40, bw - 32, 22);
-  ctx.fillStyle = '#ffd34a';
-  ctx.fillRect(bx + 16 + (bw - 32) * 0.42, by + 40, (bw - 32) * 0.16, 22);
-  ctx.fillStyle = '#ff5a8a';
-  ctx.fillRect(bx + 16 + (bw - 32) * a.sweep - 2, by + 36, 4, 30);
-  ctx.fillStyle = '#f2ead8';
-  ctx.font = '13px Arial';
-  ctx.fillText(a.result || 'Press SPACE in the gold zone', bx + 16, by + 78);
+/** Live standings: player plus rivals, by progress, best first. */
+export function raceStandings(race) {
+  const rows = [{ name: 'Milo (you)', progress: race.playerProgress, lap: race.lap }];
+  for (const r of race.rivals) rows.push({ name: r.name, progress: r.progress, lap: r.lap });
+  rows.sort((a, b) => b.progress - a.progress || b.lap - a.lap);
+  return rows.map((r, i) => ({ place: i + 1, ...r }));
 }

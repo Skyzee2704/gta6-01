@@ -1,177 +1,118 @@
-// SOLMAR 3D — the player on foot. Boxy but precise and human: 1.8 units
-// tall, head 1/7.5 of height, every body part a clear box (head, torso,
-// arms, legs, hands) — no spheres, no alien blobs. Movement is camera
-// relative and NEVER mirrored: A strafes screen-left, D screen-right,
-// mouse right turns the view right.
-import { PLAYER, CAMERA } from './config.js';
-import { clamp, lerpAngle, dist2 } from './random.js';
+// People, built like people. Reference: the free 7.5-head figure canon
+// (one head 0.24 m on a 1.80 m adult; shoulders two heads wide; crotch at
+// 3.75 heads, knees at 5.63 heads). Every body part is a box with a clear
+// job: head, torso, two arms, two legs, hands, feet. No spheres anywhere
+// on a body — spheres are how a person turns into an alien.
+// The same numbers are built in Blender (tools/blender-character.py) and
+// the render there is the proportion check for this file.
+import { PLAYER } from './config.js';
+import { clamp, wrapAngle } from './random.js';
 
-export function createPlayerState(spawn) {
+export const HEAD = PLAYER.head; // 0.24 m
+export const BODY_HEIGHT = PLAYER.height; // 1.80 m = 7.5 heads
+
+/** Body-part boxes for one person, in local space, feet at y = 0. */
+export function bodyParts(person) {
+  const h = HEAD;
+  const legLen = 3.75 * h; // ground to hip
+  const torsoLen = 2.5 * h; // hip to shoulder
+  const armLen = 3.1 * h; // shoulder to fingertip
+  const s = person.scale || 1;
   return {
-    x: spawn.x, z: spawn.z, heading: spawn.heading,
-    speed: 0, walkPhase: 0, health: PLAYER.maxHealth, armor: 0,
-    onFoot: true, vehicleId: null, dead: false,
+    head: { w: 0.92 * h, h: 1.0 * h, d: 0.88 * h, y: (6.5 * h) * s, color: person.skin },
+    hair: { w: 0.96 * h, h: 0.42 * h, d: 0.92 * h, y: (7.05 * h) * s, color: person.hair },
+    torso: { w: 1.9 * h, h: torsoLen, d: 0.95 * h, y: (3.75 * h + torsoLen / 2) * s, color: person.shirt, taper: 0.86 },
+    armL: { w: 0.42 * h, h: armLen, d: 0.42 * h, x: -1.15 * h, y: (6.25 * h - armLen / 2) * s, color: person.shirt },
+    armR: { w: 0.42 * h, h: armLen, d: 0.42 * h, x: 1.15 * h, y: (6.25 * h - armLen / 2) * s, color: person.shirt },
+    handL: { w: 0.4 * h, h: 0.72 * h, d: 0.4 * h, x: -1.15 * h, y: (6.25 * h - armLen - 0.3 * h) * s, color: person.skin },
+    handR: { w: 0.4 * h, h: 0.72 * h, d: 0.4 * h, x: 1.15 * h, y: (6.25 * h - armLen - 0.3 * h) * s, color: person.skin },
+    legL: { w: 0.55 * h, h: legLen, d: 0.55 * h, x: -0.48 * h, y: (legLen / 2) * s, color: person.pants },
+    legR: { w: 0.55 * h, h: legLen, d: 0.55 * h, x: 0.48 * h, y: (legLen / 2) * s, color: person.pants },
+    footL: { w: 0.55 * h, h: 0.28 * h, d: 1.15 * h, x: -0.48 * h, y: 0.14 * h, z: 0.22 * h, color: person.shoes || '#14141a' },
+    footR: { w: 0.55 * h, h: 0.28 * h, d: 1.15 * h, x: 0.48 * h, y: 0.14 * h, z: 0.22 * h, color: person.shoes || '#14141a' },
   };
 }
 
-// Camera yaw is three.js rotation.y: forward = (-sin yaw, -cos yaw) in (x,z),
-// right = (cos yaw, -sin yaw). Mouse right (dx>0) turns the view right,
-// so yaw decreases. A key moves along -right: screen-left. Not mirrored.
-export function forwardOf(yaw) {
-  return { x: -Math.sin(yaw), z: -Math.cos(yaw) };
-}
-export function rightOf(yaw) {
-  return { x: Math.cos(yaw), z: -Math.sin(yaw) };
+/** Walk-cycle swing for the limbs, in radians, from speed and time. */
+export function walkSwing(speed, time) {
+  const amp = clamp(speed / PLAYER.runSpeed, 0, 1) * 0.55;
+  const phase = time * (4 + speed * 1.1);
+  return { legL: Math.sin(phase) * amp, legR: -Math.sin(phase) * amp, armL: -Math.sin(phase) * amp * 0.7, armR: Math.sin(phase) * amp * 0.7 };
 }
 
-export function stepPlayerOnFoot(state, dt, input) {
-  const p = state.player;
-  if (!p.onFoot || p.dead) return;
-  const look = input.takeLook();
-  state.camera.yaw = clamp(state.camera.yaw - look.dx * 0.0025, -Math.PI * 4, Math.PI * 4);
-  state.camera.pitch = clamp(state.camera.pitch - look.dy * 0.002, -0.35, 0.45);
-  const move = input.move();
-  const fwd = forwardOf(state.camera.yaw);
-  const right = rightOf(state.camera.yaw);
-  let mx = fwd.x * move.z + right.x * move.x;
-  let mz = fwd.z * move.z + right.z * move.x;
-  const len = Math.hypot(mx, mz);
-  if (len > 0) {
-    mx /= len;
-    mz /= len;
-    const targetSpeed = input.run() ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    p.speed += (targetSpeed - p.speed) * Math.min(1, dt * 10);
-    p.x += mx * p.speed * dt;
-    p.z += mz * p.speed * dt;
-    p.heading = lerpAngle(p.heading, Math.atan2(mx, mz), Math.min(1, dt * 12));
-    p.walkPhase += dt * p.speed * 2.2;
-    state.stats.distanceWalked += p.speed * dt;
-  } else {
-    p.speed += (0 - p.speed) * Math.min(1, dt * 8);
-  }
-  // Stay on the island and out of building footprints.
-  const r = Math.hypot(p.x, p.z);
-  if (r > 228) {
-    p.x *= 228 / r;
-    p.z *= 228 / r;
-  }
-  pushOutOfBuildings(state, p, 1.0);
-}
-
-export function pushOutOfBuildings(state, obj, radius) {
-  for (const b of state.city.buildings) {
-    const hw = b.w / 2 + radius;
-    const hd = b.d / 2 + radius;
-    if (Math.abs(obj.x - b.x) < hw && Math.abs(obj.z - b.z) < hd) {
-      const dx = obj.x - b.x;
-      const dz = obj.z - b.z;
-      const px = hw - Math.abs(dx);
-      const pz = hd - Math.abs(dz);
-      if (px < pz) obj.x = b.x + (dx >= 0 ? hw : -hw);
-      else obj.z = b.z + (dz >= 0 ? hd : -hd);
-    }
-  }
-  for (const lm of state.city.landmarks) {
-    if (lm.kind === 'pad' || lm.kind === 'wheel') continue;
-    const hw = lm.w / 2 + radius;
-    const hd = lm.d / 2 + radius;
-    if (Math.abs(obj.x - lm.x) < hw && Math.abs(obj.z - lm.z) < hd) {
-      const dx = obj.x - lm.x;
-      const dz = obj.z - lm.z;
-      const px = hw - Math.abs(dx);
-      const pz = hd - Math.abs(dz);
-      if (px < pz) obj.x = lm.x + (dx >= 0 ? hw : -hw);
-      else obj.z = lm.z + (dz >= 0 ? hd : -hd);
-    }
-  }
-}
-
-// Chase camera: boom behind the player (or the car), FOV widens with
-// speed, swing lags heading changes. keepClear walks the camera out
-// until no building sits between camera and player — the spawn camera
-// never ends up inside a building.
-export function computeChaseCamera(state) {
-  const cam = state.camera;
-  const focus = state.player.onFoot
-    ? { x: state.player.x, y: 1.6, z: state.player.z }
-    : vehicleFocus(state);
-  const speed = state.player.onFoot ? state.player.speed : currentVehicleSpeed(state);
-  const boom = CAMERA.chaseBoomMin + (CAMERA.chaseBoomMax - CAMERA.chaseBoomMin) * clamp(speed / 50, 0, 1);
-  const fwd = forwardOf(cam.yaw);
-  // Swing: the camera trails the heading instead of snapping to it.
-  const targetYaw = state.player.onFoot ? state.player.heading : vehicleHeading(state);
-  cam.swing = lerpAngle(cam.swing ?? targetYaw, targetYaw, 0.06);
-  const back = { x: -Math.sin(cam.swing), z: -Math.cos(cam.swing) };
-  let pos = {
-    x: focus.x + back.x * boom,
-    y: focus.y + 4.2 + speed * 0.02,
-    z: focus.z + back.z * boom,
-  };
-  // keepClear: step from the focus toward the wanted position; stop at
-  // the first clear point instead of ending up inside a wall.
-  const steps = 24;
-  let clear = { ...pos };
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const cand = {
-      x: focus.x + (pos.x - focus.x) * t,
-      y: focus.y + (pos.y - focus.y) * t,
-      z: focus.z + (pos.z - focus.z) * t,
-    };
-    if (!pointInBuilding(state, cand.x, cand.z, 1.2)) {
-      clear = cand;
-      break;
-    }
-    clear = cand;
-  }
-  const fov = CAMERA.fovSlow + (CAMERA.fovFast - CAMERA.fovSlow) * clamp(speed / 55, 0, 1);
-  return { pos: clear, lookAt: focus, fov };
-}
-
-function vehicleFocus(state) {
-  const v = state.vehicles.find((x) => x.id === state.player.vehicleId);
-  if (!v) return { x: state.player.x, y: 1.6, z: state.player.z };
-  return { x: v.x, y: 1.8, z: v.z };
-}
-function currentVehicleSpeed(state) {
-  const v = state.vehicles.find((x) => x.id === state.player.vehicleId);
-  return v ? Math.abs(v.speed) : 0;
-}
-function vehicleHeading(state) {
-  const v = state.vehicles.find((x) => x.id === state.player.vehicleId);
-  return v ? v.heading : state.player.heading;
-}
-
-export function pointInBuilding(state, x, z, radius) {
-  for (const b of state.city.buildings) {
-    if (Math.abs(x - b.x) < b.w / 2 + radius && Math.abs(z - b.z) < b.d / 2 + radius) return true;
-  }
-  for (const lm of state.city.landmarks) {
-    if (lm.kind === 'pad' || lm.kind === 'wheel') continue;
-    if (Math.abs(x - lm.x) < lm.w / 2 + radius && Math.abs(z - lm.z) < lm.d / 2 + radius) return true;
-  }
-  return false;
-}
-
-// Body proportions for the renderer: every part a box, head exactly
-// 1/7.5 of the 1.8-unit height. One source of truth — render.js builds
-// the player and the peds from these numbers. Continuous, no gaps:
-// legs [0, 0.86], torso [0.86, 1.56], head [1.56, 1.80].
-export function bodyParts() {
-  const head = PLAYER.heightUnits * PLAYER.headRatio; // 0.24
+export function createPlayer(x, z) {
   return {
-    head: { w: head, h: head, d: head, y: PLAYER.heightUnits - head / 2 },
-    hair: { w: 0.26, h: 0.08, d: 0.26, y: 1.80 },
-    torso: { w: 0.52, h: 0.70, d: 0.30, y: 1.21 },
-    armL: { w: 0.13, h: 0.72, d: 0.16, x: -0.33, y: 1.20 },
-    armR: { w: 0.13, h: 0.72, d: 0.16, x: 0.33, y: 1.20 },
-    legL: { w: 0.20, h: 0.86, d: 0.24, x: -0.13, y: 0.43 },
-    legR: { w: 0.20, h: 0.86, d: 0.24, x: 0.13, y: 0.43 },
-    handL: { w: 0.12, h: 0.14, d: 0.14, x: -0.33, y: 0.78 },
-    handR: { w: 0.12, h: 0.14, d: 0.14, x: 0.33, y: 0.78 },
+    x, z, y: 0, heading: 0, speed: 0, vx: 0, vz: 0,
+    health: PLAYER.maxHealth, armor: 0, onFoot: true, vehicle: null, boat: null,
+    weapon: 'pistol', ammo: { pistol: [12, 60], smg: [0, 0], rifle: [0, 0], shotgun: [0, 0], sniper: [0, 0] },
+    owned: ['fists', 'pistol'], money: 250, respect: 0,
+    walkTime: 0, hurtCooldown: 0, wanted: 0, wantedTimer: 0,
+    scale: 1, skin: '#c98d5f', hair: '#1c1c22', shirt: '#2e5fa3', pants: '#22303e',
   };
 }
 
-export function distanceToPlayer(state, x, z) {
-  return Math.sqrt(dist2(x, z, state.player.x, state.player.z));
+/**
+ * Move the player on foot. steer is -1 (A, left) or +1 (D, right); forward
+ * is W, back is S. D is right and A is left, always: the sign is never flipped.
+ */
+export function stepPlayerOnFoot(player, input, dt, collide) {
+  // Steer +1 is D, and D turns the player toward screen-right. With the
+  // forward vector (sin h, cos h) and the chase camera behind, screen-right
+  // is a DECREASING heading — so D subtracts. Never flip this sign.
+  const turn = input.steer * PLAYER.turnSpeed * dt;
+  player.heading = wrapAngle(player.heading - turn);
+  const want = (input.forward ? 1 : 0) - (input.back ? 0.55 : 0);
+  const target = want * (input.run ? PLAYER.runSpeed : PLAYER.walkSpeed);
+  player.speed += clamp(target - player.speed, -PLAYER.accel * dt, PLAYER.accel * dt);
+  const nx = player.x + Math.sin(player.heading) * player.speed * dt;
+  const nz = player.z + Math.cos(player.heading) * player.speed * dt;
+  if (!collide || collide(nx, player.z)) player.x = nx;
+  if (!collide || collide(player.x, nz)) player.z = nz;
+  player.vx = Math.sin(player.heading) * player.speed;
+  player.vz = Math.cos(player.heading) * player.speed;
+  player.walkTime += dt * (0.5 + Math.abs(player.speed) / PLAYER.runSpeed);
+  if (player.hurtCooldown > 0) player.hurtCooldown -= dt;
+  return player;
+}
+
+/**
+ * Chase camera: behind the player, boom 13 to 16 by speed, FOV 60 widening
+ * to 72 with speed, swing capped at 0.35 so the frame never whips around.
+ * keepClear steps the camera back until no building is between it and the
+ * player — it walks until free, it never gives up after one hit.
+ */
+export function chaseCamera(player, speed, buildings, dt, state) {
+  const boom = 13 + clamp(speed / 48, 0, 1) * 3;
+  const height = 5.2 + clamp(speed / 48, 0, 1) * 1.6;
+  const fov = 60 + clamp(speed / 48, 0, 1) * 12;
+  const backX = -Math.sin(player.heading);
+  const backZ = -Math.cos(player.heading);
+  let dist = boom;
+  // Walk the camera out until the line to the player is clear of buildings.
+  for (let step = 0; step < 12; step += 1) {
+    const cx = player.x + backX * dist;
+    const cz = player.z + backZ * dist;
+    let blocked = false;
+    for (const b of buildings) {
+      if (Math.abs(cx - b.x) < b.w / 2 + 1 && Math.abs(cz - b.z) < b.d / 2 + 1) { blocked = true; break; }
+    }
+    if (!blocked) break;
+    dist = Math.max(4, dist - 1.2);
+  }
+  const targetX = player.x + backX * dist;
+  const targetZ = player.z + backZ * dist;
+  const targetY = height;
+  const k = Math.min(1, dt * 6);
+  state.camX += (targetX - state.camX) * k;
+  state.camY += (targetY - state.camY) * k;
+  state.camZ += (targetZ - state.camZ) * k;
+  // Swing: the camera yaw follows the heading, capped so it never snaps.
+  const wantYaw = Math.atan2(player.x - state.camX, player.z - state.camZ);
+  const dyaw = wrapAngle(wantYaw - state.camYaw);
+  state.camYaw += clamp(dyaw, -0.35 * dt * 8, 0.35 * dt * 8);
+  return { x: state.camX, y: state.camY, z: state.camZ, yaw: state.camYaw, fov, dist };
+}
+
+export function createCameraState(x, z) {
+  return { camX: x, camY: 6, camZ: z - 14, camYaw: 0 };
 }

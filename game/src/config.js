@@ -1,107 +1,92 @@
-// SOLMAR 3D — world constants. Single source of truth for every module:
-// the sim, the renderer, the shots and the gates all read these numbers,
-// so a tuned value can never drift between systems.
-export const WORLD = {
-  width: 640,
-  depth: 480,
-  // The island is a circle: Sky wants the map ROUND, not square.
-  // Land is the disc of this radius around the world centre; sea is outside.
-  islandRadius: 232,
-  ringRoadRadius: 204,
-  seaLevel: -0.4,
+// Every tuning number and colour in one place. SOLMAR is a round island city,
+// 640 by 480 units, ringed by sea: the playable land is a disc, never a square.
+// One unit is one metre. The clock starts at golden hour, 18.6, and runs
+// 0.6 game-minutes per real second, so dusk and night still happen in play.
+export const WORLD = { width: 640, height: 480, centreX: 320, centreY: 240, landRadius: 298, beachWidth: 18, seaLevel: -0.4 };
+
+/** The simulation's fixed step, in seconds: 60 updates a second whatever the display rate. */
+export const STEP = 1 / 60;
+
+/** Golden hour. Locked by Sky's decision: cover, race and the default start all use it. */
+export const START_HOUR = 18.6;
+/** Game-minutes that pass per real second. */
+export const CLOCK_RATE = 0.6;
+/** Sun sets around here; the sky shader reads the hour every frame. */
+export const SUNSET_HOUR = 19.5;
+
+export const PLAYER = {
+  // Milo: 1.80 m tall, head to body 1 to 7.5, every part a box, nothing round.
+  height: 1.8, head: 0.24, shoulderWidth: 0.46, hipWidth: 0.38,
+  walkSpeed: 4.2, runSpeed: 7.0, accel: 26, turnSpeed: 9.5,
+  maxHealth: 100, maxArmor: 100, punchDamage: 12, punchRange: 1.6,
+  invulnerable: 0.6,
 };
 
-export const TIME = {
-  // Golden hour, locked by Sky (design review 2026-11-19 14:26 WITA).
-  startHour: 18.6,
-  // In-game minutes passing per real second while playing.
-  minutesPerSecond: 0.6,
-  // Sun elevation curve: rises 06:00, sets ~19:30.
-  sunriseHour: 6.0,
-  sunsetHour: 19.5,
-  nightHour: 21.0,
+export const LIVES = 3;
+
+export const WANTED = {
+  max: 5,
+  // Wanted 1: officers walk up to arrest. Wanted 2 and up: they get out and shoot.
+  shootAt: 2,
+  decaySeconds: 26,
+  // Heat gained per crime, in stars.
+  killPed: 1, killCop: 2, stealCar: 1, shootNearCop: 1, speedNearCop: 0,
 };
 
-export const ROADS = {
-  // No building footprint may come closer than this to a road centreline.
-  setback: 12,
-  width: 14,
-  laneWidth: 3.4,
-  sidewalkWidth: 3.0,
+export const COMBAT = {
+  // A car that hits a person on foot hurts for real: damage plus a shove, never a pass-through.
+  carHitDamage: 34, carHitKnockback: 9.5, carHitCooldown: 0.8,
+  pedKillWanted: 1, bulletSpread: 0.02,
+};
+
+export const VEHICLE = {
+  // Steering: D turns right, A turns left. Positive steer is always to the right,
+  // on the road, on a boat and in a helicopter, so nothing ever feels mirrored.
+  steerSpeed: 2.6, maxSteer: 0.62,
 };
 
 export const CITY = {
-  buildingTarget: 200,
-  palmTarget: 150,
-  districts: 6,
+  buildingCount: 198, palmCount: 148, treeCount: 42,
+  // No building footprint may come this close to a road centreline.
+  roadSetback: 12,
+  lampSpacing: 26, hydrantSpacing: 60,
 };
 
-export const PLAYER = {
-  // Head:body proportion Sky demanded: 1 : 7.5, human-readable, never alien.
-  heightUnits: 1.8,
-  headRatio: 1 / 7.5,
-  walkSpeed: 5.2,
-  runSpeed: 8.4,
-  maxHealth: 100,
-  maxArmor: 100,
+export const ECONOMY = {
+  startCash: 250, taxiFareBase: 18, taxiFarePerMetre: 0.35,
+  resprayPrice: 120, penthousePrice: 45000, penthouseIncomePerDay: 850,
+  garagePrice: 8000,
 };
 
-export const CAMERA = {
-  chaseBoomMin: 13,
-  chaseBoomMax: 16,
-  fovSlow: 60,
-  fovFast: 72,
-  swingMax: 0.35,
+export const RACE = {
+  laps: 3, checkpoints: 8, rivals: ['Neri Flint', 'Zella Coil', 'Ivo Switch'],
 };
 
-export const POLICE = {
-  maxStars: 5,
-  // Foot officers stop and shoot in bursts at wanted >= 2; wanted 1 is arrest only.
-  shootWantedMin: 2,
-  // Police never shoot during a story mission.
-  neverShootDuringMission: true,
-  responseUnitsMax: 5,
-  searchRadius: 90,
+/** Where saves and the best stats live between visits (this browser only). */
+export const SAVE_KEY = 'solmar.save.v1';
+export const STATS_KEY = 'solmar.stats.v1';
+
+export const PALETTE = {
+  backdrop: '#14100c',
+  // Golden hour sky: warm horizon, deep blue-violet up high.
+  skyTop: '#2c3a6e', skyHorizon: '#ff9a3c', sun: '#ffd27a',
+  sea: '#1d4e6b', seaDeep: '#0f3350', sand: '#d9b380',
+  // Asphalt is dark, never blue. Sidewalk and zebra paint are matte, never glaring.
+  asphalt: '#26262a', asphaltLine: '#c9a227', sidewalk: '#8a8578', zebra: '#cfcabb',
+  grass: '#4d7a3a', neonPink: '#ff4fd8', neonCyan: '#37e6ff', neonGold: '#ffb02e',
+  hudGold: '#ffb02e', hudPanel: 'rgba(12,10,8,0.72)', hudText: '#f5efe4', hudMuted: '#b8ab96',
+  wantedStar: '#ffd23e', policeBlue: '#3a7bff', policeRed: '#ff3b30',
+  text: '#f5efe4', muted: '#b8ab96',
 };
 
-export const PERF = {
-  maxDrawCalls: 100,
-  maxTriangles: 200000,
-  maxSimMs: 8,
-  lightPoolMin: 8,
-  lightPoolMax: 12,
-};
+export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-export const SHOTS = {
-  width: 1280,
-  height: 720,
-  maxBytes: 262144,
-  // Luma floors the shot script enforces, fail-loud.
-  lumaFloor: { cover: 0.35, race: 0.35, onfoot: 0.25, map: 0.35 },
-  // Target file size band: dense scenes land here; thin scenes do not.
-  sizeTargetMin: 180 * 1024,
-};
-
-// Staging save the shots load: a real mid-game save, never a fresh save.
-export const STAGING = {
-  // Measured by missionCheck 2026-11-19 (rebuild #4): $24,950 earned
-  // through missions 1–5, minus the $12,000 penthouse bought for real.
-  cash: 12950,
-  respect: 1770,
-  respectTitle: 'Big Shot',
-  job: 6,
-  day: 3,
-  postcards: 8,
-  postcardsTotal: 20,
-  mission: 6,
-  missionStage: 'escape',
-  missionTimer: 127,
-  weaponsOwned: ['pistol', 'smg', 'vk47', 'shotgun', 'sniper'],
-  ammo: { pistol: [12, 120], smg: [32, 160], vk47: [30, 90], shotgun: [6, 36], sniper: [5, 25] },
-  penthouseOwned: true,
-};
-
-export const HUD = {
-  weaponSlots: ['pistol', 'smg', 'vk47', 'shotgun', 'sniper'],
-  radioStations: 4,
-};
+/** Districts, in the order the map legend lists them. */
+export const DISTRICTS = [
+  { id: 'marina', name: 'Solmar Marina', tagline: 'Where the gold hour lives', x: 320, y: 392 },
+  { id: 'downtown', name: 'Downtown', tagline: 'Glass, neon and big money', x: 320, y: 240 },
+  { id: 'neon', name: 'Neon Mile', tagline: 'The street never sleeps', x: 448, y: 240 },
+  { id: 'beach', name: 'Palma Beach', tagline: 'Surf, sun and slow days', x: 192, y: 392 },
+  { id: 'oldtown', name: 'Old Town', tagline: 'Brick, bells and old debts', x: 192, y: 120 },
+  { id: 'harbor', name: 'Harbor Point', tagline: 'Boats, cranes and quiet deals', x: 448, y: 120 },
+];

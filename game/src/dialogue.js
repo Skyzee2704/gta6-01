@@ -1,70 +1,71 @@
-// SOLMAR 3D — dialogue. Every mission line is written here, spoken by a
-// named member of the cast, and shown with that character's portrait.
-// Full English, in character, never placeholder text.
-import { MISSIONS, CAST } from './data.js';
+// Dialogue: the mission talk, queued line by line, each with its speaker
+// and a portrait. All of it is in English, all of it original to Solmar.
+import { CAST } from './data.js';
 
 export function castById(id) {
   return CAST.find((c) => c.id === id) || CAST[0];
 }
 
-export function dialogueFor(missionId, stage, phase) {
-  const def = MISSIONS.find((m) => m.id === missionId);
-  if (!def) return null;
-  const giver = castById(def.giver);
-  if (phase === 'intro') return { speaker: giver.id, name: giver.name, text: def.intro };
-  if (phase === 'outro') return { speaker: giver.id, name: giver.name, text: def.outro };
-  const lines = MISSION_STAGE_LINES[missionId] || {};
-  const line = lines[stage];
-  if (!line) return { speaker: giver.id, name: giver.name, text: def.stages[Math.min(stage, def.stages.length - 1)].hint };
-  return line;
+/** The lines for one mission, in order. */
+export const MISSION_LINES = {
+  1: [
+    { who: 'kane', text: 'Milo. You want in? Prove it. Bring me a coupe off Marina Boulevard.' },
+    { who: 'milo', text: 'Any coupe? Or one with the keys in it?' },
+    { who: 'kane', text: 'The pretty one. And try not to scratch it. Much.' },
+  ],
+  2: [
+    { who: 'rosa', text: 'I lifted the till and the whole diner is yelling. Drive, Milo. Drive!' },
+    { who: 'milo', text: 'Seatbelt on, Rosa. This is going to be loud.' },
+    { who: 'rosa', text: 'Loud is my favourite speed.' },
+  ],
+  3: [
+    { who: 'kane', text: 'Three shops owe me. Three doors, three debts. The Vultures are circling — be quick.' },
+    { who: 'milo', text: 'And if they pay in attitude instead of cash?' },
+    { who: 'kane', text: 'Then you collect the attitude too.' },
+  ],
+  4: [
+    { who: 'rosa', text: 'The Vultures jumped our turf on Neon Mile. Six of them. Send them home.' },
+    { who: 'milo', text: 'Six? I was hoping for a challenge.' },
+    { who: 'rosa', text: 'Try not to die showing off.' },
+  ],
+  5: [
+    { who: 'kane', text: 'Downtown Bank Tower. One sleepy guard, one vault, one perfect morning.' },
+    { who: 'milo', text: 'And after? We split it and vanish?' },
+    { who: 'kane', text: 'After, Milo, we do not vanish. We buy the marina.' },
+  ],
+  6: [
+    { who: 'kane', text: 'Last job. The Harbor Cruiser is waiting at the docks. Take it and own this city.' },
+    { who: 'milo', text: 'King of Solmar. I like the sound of that.' },
+    { who: 'rosa', text: 'Then go be king. I will wave from the pier.' },
+  ],
+};
+
+/** A first-in, first-out queue of dialogue lines. */
+export function createDialogue() {
+  return { queue: [], current: null, timer: 0 };
 }
 
-const MISSION_STAGE_LINES = {
-  1: {
-    0: { speaker: 'kane', name: 'Kane Doyle', text: 'That coupe by the marina. Take it. Quietly, if you can.' },
-    1: { speaker: 'rosa', name: 'Rosa Marin', text: 'Nice. Bring her to my garage — I will make her faster.' },
-    2: { speaker: 'rosa', name: 'Rosa Marin', text: 'Roll her in slow. She is yours now, Milo.' },
-  },
-  2: {
-    0: { speaker: 'kane', name: 'Kane Doyle', text: 'Pick the crew up in Old Town. No detours, no heroes.' },
-    1: { speaker: 'kane', name: 'Kane Doyle', text: 'Cops on us. Break line of sight — alleys, not highways.' },
-    2: { speaker: 'lena', name: 'Lena Kross', text: 'Clear. Safehouse is two blocks east. Bring them home.' },
-  },
-  3: {
-    0: { speaker: 'dario', name: 'Dario Fontana', text: 'First shop, Downtown. The owner knows the drill.' },
-    1: { speaker: 'dario', name: 'Dario Fontana', text: 'Neon Mile next. Smile when you ask.' },
-    2: { speaker: 'dario', name: 'Dario Fontana', text: 'Last one, Palm Beach. Then bring it all to me.' },
-    3: { speaker: 'dario', name: 'Dario Fontana', text: 'Harbor Market. Do not stop for anyone.' },
-  },
-  4: {
-    0: { speaker: 'rosa', name: 'Rosa Marin', text: 'They are inside my garage, Milo. Six Vultures. End it.' },
-    1: { speaker: 'rosa', name: 'Rosa Marin', text: 'Use the crates for cover. They shoot first and ask never.' },
-  },
-  5: {
-    0: { speaker: 'lena', name: 'Lena Kross', text: 'Side alley, not the front door. Cameras are already mine.' },
-    1: { speaker: 'lena', name: 'Lena Kross', text: 'Vault is open. Hold the room twenty seconds. Count with me.' },
-    2: { speaker: 'kane', name: 'Kane Doyle', text: 'Three stars and a bag of cash. Drive like the city is on fire.' },
-  },
-  6: {
-    0: { speaker: 'kane', name: 'Kane Doyle', text: 'Vex set the trap. The whole PCPD is coming. Get to the marina.' },
-    1: { speaker: 'kane', name: 'Kane Doyle', text: 'Four stars. Do not stop for anything. The far pier — go!' },
-    2: { speaker: 'rosa', name: 'Rosa Marin', text: 'The boat is at the pier. Get on it, Milo. Get on it now.' },
-  },
-};
+/** Queue a mission's lines. */
+export function queueMissionLines(dialogue, missionId) {
+  const lines = MISSION_LINES[missionId] || [];
+  for (const line of lines) dialogue.queue.push({ ...line, speaker: castById(line.who) });
+  return dialogue.queue.length;
+}
 
-// One-liners the world drops when the player does something notable.
-export const BARKS = {
-  steal: [
-    { speaker: 'milo', name: 'Milo Vane', text: 'Borrowed. Permanently.' },
-    { speaker: 'milo', name: 'Milo Vane', text: 'She drives like a dream. My dream now.' },
-  ],
-  wanted: [
-    { speaker: 'lena', name: 'Lena Kross', text: 'PCPD is on you. Lose them before they box you in.' },
-  ],
-  escape: [
-    { speaker: 'kane', name: 'Kane Doyle', text: 'You lost them. That is how legends start.' },
-  ],
-  race: [
-    { speaker: 'neri', name: 'Neri Flint', text: 'Flint does not lose on home streets.' },
-  ],
-};
+/** Queue one free line. */
+export function say(dialogue, who, text) {
+  dialogue.queue.push({ who, text, speaker: castById(who) });
+}
+
+/** Advance the queue; shows each line for a few seconds. */
+export function stepDialogue(dialogue, dt) {
+  if (!dialogue.current && dialogue.queue.length > 0) {
+    dialogue.current = dialogue.queue.shift();
+    dialogue.timer = 4.5;
+  }
+  if (dialogue.current) {
+    dialogue.timer -= dt;
+    if (dialogue.timer <= 0) dialogue.current = null;
+  }
+  return dialogue.current;
+}

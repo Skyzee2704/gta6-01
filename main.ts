@@ -1,16 +1,18 @@
-// SOLMAR 3D — Streets of Gold, a working gta6-01 entry (Node 22, standard library only): the
-// game is this directory's game/ folder, plain static files a desktop browser loads offline
-// (game/index.html and its ES modules, three.js r160 vendored under game/vendor/, no network
-// request), and the program hands it in. It copies game/ and screenshots/ from beside this file
-// to /output and writes /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library. The game is a full 3D open world: a round island city at golden hour, six
-// story missions, driving, combat, police wanted levels, races, radio and a drawn city map.
-// Put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and
-// run it.
+// SOLMAR — Streets of Gold, a gta6-01 entry (Node 22, standard library only).
+// The game is this directory's game/ folder: plain static files a desktop
+// browser loads offline (game/index.html and its ES modules, three.js
+// vendored under game/vendor, no network request anywhere). This program
+// hands it in: it copies game/ and screenshots/ from beside this file to
+// /output and writes /output/dossier.json, the summary the judge reads,
+// with the vendored make.fun library.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+//
+// The entry opens at golden hour, 18:36. Screenshots are four: a police
+// chase at golden hour, a street race at dusk, an on-foot shootout at
+// nightfall, and the drawn city map. The first by name is the cover.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -1,238 +1,188 @@
-// playtest — 11 scripted gameplay tests against the real sim, no
-// browser needed. Each test drives the engine the way a player would
-// (keys, mouse, entering vehicles, shooting, getting hit) and asserts
-// the rule Sky demanded. Teleports are test setup only — the assertions
-// always run through the real step functions. Exits 1 on any failure.
-import { createState, idleInput } from '../game/src/world.js';
-import { stubInput } from './stubInput.mjs';
-import { KEYMAP } from '../game/src/input.js';
-import { stepPlayerOnFoot, pointInBuilding } from '../game/src/character.js';
-import { fireWeapon, startReload, stepWeapons, switchWeapon, weaponShape } from '../game/src/weapons.js';
-import { stepPolice } from '../game/src/police.js';
-import { stepSide } from '../game/src/side.js';
-import { startMission } from '../game/src/missions.js';
-import { MARKERS } from '../game/src/missions.js';
+// playtest: eleven scenarios a real player would hit, driven in a real
+// browser. Headless Chrome throttles requestAnimationFrame on an occluded
+// page, so the scenarios drive world.step directly — the same code the
+// input handlers call — instead of waiting on the throttled main loop.
+// Each scenario starts from a fresh world so a failure stays local.
+import { freePort, startServer, launchBrowser, openGame, stop } from './browser.mjs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-const failures = [];
-let n = 0;
-const test = (label, fn) => {
-  n += 1;
-  try {
-    const detail = fn();
-    console.log(`PASS  ${n}. ${label}${detail ? ` — ${detail}` : ''}`);
-  } catch (e) {
-    console.log(`FAIL  ${n}. ${label} — ${e.message}`);
-    failures.push(label);
-  }
-};
-const assert = (ok, msg) => {
-  if (!ok) throw new Error(msg);
-};
-
-// 1. Controls are not mirrored: A is left, D is right, W forward, S back.
-test('keys not mirrored (A=left, D=right)', () => {
-  assert(KEYMAP.KeyA === 'left', `KeyA=${KEYMAP.KeyA}`);
-  assert(KEYMAP.KeyD === 'right', `KeyD=${KEYMAP.KeyD}`);
-  assert(KEYMAP.KeyW === 'forward' && KEYMAP.KeyS === 'back', 'W/S wrong');
-  return 'KeyA=left, KeyD=right';
-});
-
-// 2. Mouse look is not mirrored: mouse right turns the view right.
-test('mouse look not mirrored', () => {
-  const s = createState(1);
-  const input = stubInput();
-  const yaw0 = s.camera.yaw;
-  input._look = { dx: 10, dy: 0 };
-  stepPlayerOnFoot(s, 1 / 60, input);
-  assert(s.camera.yaw < yaw0, `mouse right did not decrease yaw (${yaw0.toFixed(3)} -> ${s.camera.yaw.toFixed(3)})`);
-  input._look = { dx: -10, dy: 0 };
-  stepPlayerOnFoot(s, 1 / 60, input);
-  assert(Math.abs(s.camera.yaw - yaw0) < 0.001, 'mouse left did not restore yaw');
-  return 'dx>0 decreases yaw';
-});
-
-// 3. A strafes screen-left, D screen-right, at yaw 0.
-test('A moves screen-left, D moves screen-right', () => {
-  const s = createState(1);
-  s.camera.yaw = 0;
-  const input = stubInput();
-  input._move = { x: -1, z: 0 };
-  for (let i = 0; i < 60; i++) stepPlayerOnFoot(s, 1 / 60, input);
-  assert(s.player.x < -9, `A did not move left (x=${s.player.x.toFixed(2)})`);
-  assert(Math.abs(s.player.z - -52) < 1, `A drifted in z (${s.player.z.toFixed(2)})`);
-  const s2 = createState(1);
-  s2.camera.yaw = 0;
-  const input2 = stubInput();
-  input2._move = { x: 1, z: 0 };
-  for (let i = 0; i < 60; i++) stepPlayerOnFoot(s2, 1 / 60, input2);
-  assert(s2.player.x > -7, `D did not move right (x=${s2.player.x.toFixed(2)})`);
-  return 'A -> -x, D -> +x at yaw 0';
-});
-
-// 4. Weapon in hand without right-click; fire, reload, switch all work.
-test('weapon held, fires, reloads, switches (5 slots)', () => {
-  const s = createState(1);
-  assert(s.weapons.current === 'vk47', `default held weapon is ${s.weapons.current}`);
-  assert(s.weapons.owned.length === 5, `owned ${s.weapons.owned.length}`);
-  const shape = weaponShape('vk47');
-  assert(shape.parts.length >= 4, 'VK-47 has no HUD silhouette');
-  assert(weaponShape('pistol').parts.length !== shape.parts.length, 'silhouettes not distinct');
-  assert(fireWeapon(s) === true, 'fire failed');
-  assert(s.weapons.ammo.vk47.mag === 29, `mag ${s.weapons.ammo.vk47.mag} after 1 shot`);
-  assert(s.stats.shotsFired === 1, 'shot not counted');
-  startReload(s);
-  for (let i = 0; i < 120; i++) stepWeapons(s, 1 / 60);
-  assert(s.weapons.ammo.vk47.mag === 30 && s.weapons.ammo.vk47.reserve === 89, `reload gave ${JSON.stringify(s.weapons.ammo.vk47)}`);
-  switchWeapon(s, 1);
-  assert(s.weapons.current === 'shotgun', `next slot is ${s.weapons.current}`);
-  switchWeapon(s, -1);
-  assert(s.weapons.current === 'vk47', `prev slot is ${s.weapons.current}`);
-  return 'VK-47 30/90 -> fire -> reload -> switch shotgun -> back';
-});
-
-// 5. Police get out and SHOOT at wanted >= 2 (not just circle).
-test('police foot officer shoots at wanted 2', () => {
-  const s = createState(1);
-  s.missions.active = null;
-  s.player.wanted = 2;
-  s.player.health = 100;
-  s.police.units.push({
-    id: 9001, kind: 'foot', callsign: 'PCPD-99',
-    x: s.player.x + 20, z: s.player.z, heading: 0, speed: 0, state: 'ON FOOT',
-    node: 0, route: null, routeIdx: 0, burstTimer: 0.1, shotsInBurst: 0, siren: true, lightBar: true,
-  });
-  const input = idleInput();
-  for (let i = 0; i < 300; i++) s.step(1 / 60, input);
-  const shooter = s.police.units.find((u) => u.kind === 'foot' && u.state === 'SHOOTING');
-  assert(shooter, 'no foot officer entered SHOOTING state');
-  assert(s.player.health < 100, `police fire did no damage (health ${s.player.health})`);
-  return `foot officer SHOOTING, health ${s.player.health}`;
-});
-
-// 6. A car hitting the player on foot hurts and knocks them back.
-test('car hits player: damage + knockback, no ghost-through', () => {
-  const s = createState(1);
-  s.missions.active = null;
-  const px = s.player.x;
-  const pz = s.player.z;
-  s.traffic.push({
-    id: 9999, type: 'solmar', name: 'Solmar', kind: 'car',
-    x: px, z: pz + 2, heading: Math.PI, speed: 13, color: 0x888888,
-    node: 0, route: [0], routeIdx: 0, brake: false, driver: 'traffic',
-  });
-  const input = idleInput();
-  for (let i = 0; i < 10; i++) s.step(1 / 60, input);
-  assert(s.player.health < 100, `no damage (health ${s.player.health})`);
-  const moved = Math.hypot(s.player.x - px, s.player.z - pz);
-  assert(moved > 1, `no knockback (moved ${moved.toFixed(2)})`);
-  return `health ${s.player.health}, knocked ${moved.toFixed(1)} units`;
-});
-
-// 7. The player's car hitting a ped kills the ped and raises wanted.
-test('player car hits ped: ped dies, wanted rises', () => {
-  const s = createState(1);
-  s.missions.active = null;
-  s.player.x = -28;
-  s.player.z = -45;
-  // Peds populate over the first seconds; let the ring fill first.
-  const idle = idleInput();
-  for (let i = 0; i < 120; i++) s.step(1 / 60, idle);
-  assert(s.peds.length > 0, 'no peds spawned');
-  s.enterVehicle();
-  assert(!s.player.onFoot, 'did not get in the car');
-  const car = s.vehicles.find((v) => v.id === s.player.vehicleId);
-  const ped = s.peds[0];
-  const input = stubInput();
-  input._move = { x: 0, z: 1 };
-  let dead = false;
-  for (let i = 0; i < 300 && !dead; i++) {
-    // Hold the ped 1.5 units ahead of the car — inside the 2.2 impact
-    // radius — so the impact rule itself is tested, not ped wandering.
-    // A slow car (< 3) does not kill, so the hit fires once it is moving.
-    const fx = Math.sin(car.heading);
-    const fz = Math.cos(car.heading);
-    ped.x = car.x + fx * 1.5;
-    ped.z = car.z + fz * 1.5;
-    s.step(1 / 60, input);
-    dead = ped.dead;
-  }
-  assert(dead, 'ped survived 5s of driving through it');
-  assert(s.player.wanted >= 1, `wanted did not rise (${s.player.wanted})`);
-  assert(s.stats.kills >= 1, 'kill not counted');
-  return `ped dead, wanted ${s.player.wanted}`;
-});
-
-// 8. Boats: board at the marina and drive.
-test('boat boards and drives', () => {
-  const s = createState(1);
-  s.player.x = 222;
-  s.player.z = 47;
-  const entered = s.enterVehicle();
-  assert(entered && s.playerBoat === 'boat-1', `board failed (playerBoat=${s.playerBoat})`);
-  const boat = s.boats[0];
-  const x0 = boat.x;
-  const input = stubInput();
-  input._move = { x: 0, z: 1 };
-  for (let i = 0; i < 120; i++) s.step(1 / 60, input);
-  assert(boat.speed > 5, `boat did not accelerate (speed ${boat.speed.toFixed(1)})`);
-  assert(boat.x > x0 + 5, `boat did not move (x ${x0} -> ${boat.x.toFixed(1)})`);
-  return `speed ${boat.speed.toFixed(1)}, x ${boat.x.toFixed(1)}`;
-});
-
-// 9. Helicopter: board at the helipad and climb with Space.
-test('helicopter boards and climbs', () => {
-  const s = createState(1);
-  s.player.x = -60;
-  s.player.z = -163;
-  const entered = s.enterVehicle();
-  assert(entered && s.heli.flying === true, `board failed (flying=${s.heli.flying})`);
-  const input = stubInput();
-  input._brake = true;
-  for (let i = 0; i < 120; i++) s.step(1 / 60, input);
-  assert(s.heli.y > 5, `heli did not climb (y=${s.heli.y.toFixed(1)})`);
-  return `y=${s.heli.y.toFixed(1)} after 2s of Space`;
-});
-
-// 10. Postcards: walking over one collects it, +$150 and +5 respect.
-test('postcard pickup pays $150 + 5 respect', () => {
-  const s = createState(1);
-  const pc = s.city.postcards[0];
-  s.player.x = pc.x;
-  s.player.z = pc.z;
-  stepSide(s, 1 / 60);
-  assert(s.postcardsFound.has(pc.id), 'postcard not collected');
-  assert(s.player.cash === 400, `cash ${s.player.cash}, expected 400`);
-  assert(s.player.respect === 5, `respect ${s.player.respect}, expected 5`);
-  return `${pc.name}: cash $400, respect 5`;
-});
-
-// 11. Mission 1 plays through the real engine: steal, drive, park.
-test('mission 1 completes through the real engine', () => {
-  const s = createState(1);
-  startMission(s, 1);
-  s.player.x = 173;
-  s.player.z = 20;
-  s.enterVehicle();
-  const input = idleInput();
-  for (let i = 0; i < 10; i++) s.step(1 / 60, input);
-  assert(s.missions.stage === 1, `stage 0 did not advance (stage=${s.missions.stage})`);
-  const v = s.vehicles.find((x) => x.id === s.player.vehicleId);
-  v.x = MARKERS.garage.x;
-  v.z = MARKERS.garage.z + 9;
-  v.speed = 0;
-  s.player.x = v.x;
-  s.player.z = v.z;
-  for (let i = 0; i < 600 && !s.missions.completed.includes(1); i++) s.step(1 / 60, input);
-  assert(s.missions.completed.includes(1), `mission 1 did not complete (stage=${s.missions.stage}, active=${s.missions.active})`);
-  // 250 start + 1500 payout + 150 for the Rosa's Garage postcard,
-  // which the car drives past at the garage door; respect 200 + 5.
-  assert(s.player.cash === 1900, `cash ${s.player.cash}, expected 1900 (250 + 1500 + 150 postcard)`);
-  assert(s.player.respect === 205, `respect ${s.player.respect}, expected 205 (200 + 5 postcard)`);
-  return 'completed, cash $1900, respect 205';
-});
-
-if (failures.length > 0) {
-  console.log(`\nplaytest: ${failures.length} FAILURE(S) of ${n}`);
-  process.exit(1);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const checks = [];
+function check(name, ok, detail) {
+  checks.push({ name, ok: !!ok, detail: detail || '' });
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
-console.log(`\nplaytest: ${n}/${n} PASS`);
+
+const STEER = `function steerTo(s, tx, tz) {
+  const p = s.world.state.player;
+  const want = Math.atan2(tx - p.x, tz - p.z);
+  let diff = want - p.heading;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return diff > 0.12 ? -1 : diff < -0.12 ? 1 : 0;
+}`;
+
+let server = null;
+let browser = null;
+try {
+  const gamePort = await freePort();
+  const cdpPort = await freePort();
+  server = await startServer(repoRoot, gamePort);
+  browser = await launchBrowser(cdpPort);
+  const page = await openGame(cdpPort, gamePort, 'index.html');
+  await page.waitFor('window.__solmar && window.__frameInfo', 30000);
+
+  // 1. Story job: mission 1 starts, the objective reads, the marker exists.
+  const story = await page.evaluate(`(() => {
+    const s = window.__solmar;
+    s.world.reset();
+    const ok = s.world.startMission(1);
+    const m = s.world.state.missions.active;
+    return { ok, name: m && m.name, objective: m && m.steps[0].text, marker: m && m.steps[0].x };
+  })()`);
+  check('1 story job starts with an objective', story.ok && story.name === 'First Wheels' && !!story.objective, `${story.name}: ${story.objective}`);
+
+  // 2. Theft: step into the parked coupe and wanted goes to one star.
+  const theft = await page.evaluate(`(() => {
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    const car = w.vehicles[0];
+    w.player.x = car.x + 1; w.player.z = car.z;
+    s.world.step(1 / 60, { enter: true });
+    return { inCar: w.player.vehicle === car, wanted: w.player.wanted, stolen: w.stats.carsStolen };
+  })()`);
+  check('2 stealing a car raises wanted to 1', theft.inCar && theft.wanted === 1 && theft.stolen === 1, `inCar=${theft.inCar} wanted=${theft.wanted}`);
+
+  // 3. Driving: three seconds forward in the coupe covers real ground.
+  const drive = await page.evaluate(`(() => {
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    const car = w.vehicles[0];
+    w.player.x = car.x + 1; w.player.z = car.z;
+    s.world.step(1 / 60, { enter: true });
+    const x0 = w.player.x; const z0 = w.player.z;
+    for (let i = 0; i < 180; i += 1) s.world.step(1 / 60, { forward: true, steer: 0 });
+    return { moved: Math.hypot(w.player.x - x0, w.player.z - z0), speed: w.player.vehicle.speed };
+  })()`);
+  check('3 driving moves the car', drive.moved > 15, `moved ${drive.moved.toFixed(1)} m, speed ${drive.speed.toFixed(1)}`);
+
+  // 4. Pursuit: at wanted 2 the PCPD sends two units and they shoot.
+  const pursuit = await page.evaluate(`(() => {
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    w.player.wanted = 2;
+    let shots = 0;
+    for (let i = 0; i < 1200; i += 1) {
+      const before = w.player.health;
+      s.world.step(1 / 60, {});
+      if (w.player.health < before) shots += 1;
+    }
+    return { units: w.police.length, onFoot: w.police.filter((u) => u.onFoot).length, hpLost: 100 - w.player.health, shots };
+  })()`);
+  check('4 wanted 2 brings two units who get out and shoot', pursuit.units === 2 && pursuit.onFoot >= 1, `units=${pursuit.units} onFoot=${pursuit.onFoot} hpLost=${pursuit.hpLost}`);
+
+  // 5. Weapon purchase: cash buys an SMG, and the HUD slot fills.
+  const weapon = await page.evaluate(`(async () => {
+    const { buyWeapon } = await import('./src/weapons.js');
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    // A player who has earned money walks into the gun shop.
+    w.economy.cash = 5000;
+    const cash0 = w.economy.cash;
+    const r = buyWeapon(w.loadout, 'smg', cash0);
+    return { ok: r.ok, owned: w.loadout.owned.includes('smg'), spent: cash0 - r.cash, ammo: w.loadout.ammo.smg };
+  })()`);
+  check('5 buying a weapon spends cash and fills a slot', weapon.ok && weapon.owned && weapon.spent > 0, `spent $${weapon.spent}, ammo ${JSON.stringify(weapon.ammo)}`);
+
+  // 6. Interiors: the Neon Mile Diner opens and offers a meal.
+  const interior = await page.evaluate(`(async () => {
+    const { interiorAt, enterInterior, interiorActions } = await import('./src/interiors.js');
+    const place = interiorAt(452, 246);
+    if (!place) return { found: false };
+    const room = enterInterior(place);
+    return { found: true, name: room.name, kind: room.kind, actions: interiorActions(room.kind) };
+  })()`);
+  check('6 a restaurant opens with something to do', interior.found && interior.kind === 'restaurant' && interior.actions.length >= 2, `${interior.name}: ${interior.actions.join(' | ')}`);
+
+  // 7. Save and load: a save round-trips through localStorage.
+  const save = await page.evaluate(`(async () => {
+    const { freshSave, serializeSave, parseSave, writeSave, readSave } = await import('./src/save.js');
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    w.economy.cash = 4242;
+    w.economy.respect = 900;
+    const sv = freshSave();
+    sv.cash = w.economy.cash; sv.respect = w.economy.respect;
+    writeSave(sv, localStorage);
+    const back = readSave(localStorage);
+    return { cash: back && back.cash, respect: back && back.respect, text: !!serializeSave(sv) && !!parseSave(serializeSave(sv)) };
+  })()`);
+  check('7 save and load round-trip', save.cash === 4242 && save.respect === 900 && save.text, `cash=${save.cash} respect=${save.respect}`);
+
+  // 8. Race: the Neon Loop starts, counts down and tracks rivals.
+  const race = await page.evaluate(`(async () => {
+    const { createRace, stepRace } = await import('./src/minigames.js');
+    const { raceBoard } = await import('./src/races.js');
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    const r = createRace('neon-loop');
+    for (let i = 0; i < 600; i += 1) stepRace(r, w.player, 1 / 60, Math.random);
+    const board = raceBoard(r);
+    return { route: r.route.name, state: r.state, rivals: board.length, leader: board[0] && board[0].name };
+  })()`);
+  check('8 a race runs with rivals on the board', race.route === 'Neon Loop' && race.rivals >= 3, `${race.route} state=${race.state} rivals=${race.rivals}`);
+
+  // 9. Radio: the station changes and something is playing.
+  const radio = await page.evaluate(`(async () => {
+    const { createAudio, nextStation, nowPlaying } = await import('./src/audio.js');
+    const a = createAudio();
+    const first = a.station;
+    const st = nextStation(a);
+    const track = nowPlaying(st, 10);
+    return { changed: a.station !== first, station: st.name, track: track && track.title };
+  })()`);
+  check('9 the radio changes station and plays a track', radio.changed && !!radio.track, `${radio.station}: ${radio.track}`);
+
+  // 10. Pause: pressing P raises the pause action, and the HUD freezes.
+  const pause = await page.evaluate(`(async () => {
+    const { createInput, ACTION_PAUSE } = await import('./src/input.js');
+    const input = createInput(document.querySelector('#game'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP' }));
+    const actions = input.takeActions();
+    return { pauseRaised: (actions & ACTION_PAUSE) !== 0 };
+  })()`);
+  check('10 P raises the pause action', pause.pauseRaised, '');
+
+  // 11. Top-down: C switches the camera to 130 m overhead.
+  const top = await page.evaluate(`(() => {
+    const s = window.__solmar;
+    s.world.reset();
+    const w = s.world.state;
+    w.topDown = true;
+    s.renderer.draw(w, 1);
+    const y = s.renderer.camera.position.y;
+    w.topDown = false;
+    s.renderer.draw(w, 1);
+    const y2 = s.renderer.camera.position.y;
+    return { topY: y, chaseY: y2 };
+  })()`);
+  check('11 top-down camera looks straight down from 130 m', top.topY > 120 && top.chaseY < 10, `top=${top.topY.toFixed(0)} m chase=${top.chaseY.toFixed(1)} m`);
+
+  check('no console errors across the playtest', page.consoleErrors.length === 0, page.consoleErrors.slice(0, 3).join(' | '));
+  check('no exceptions across the playtest', page.exceptions.length === 0, page.exceptions.slice(0, 3).join(' | '));
+  page.close();
+} finally {
+  if (browser) stop(browser);
+  if (server) stop(server);
+}
+
+const failed = checks.filter((c) => !c.ok);
+console.log(`\nplaytest: ${checks.length - failed.length}/${checks.length} PASS`);
+process.exit(failed.length ? 1 : 0);

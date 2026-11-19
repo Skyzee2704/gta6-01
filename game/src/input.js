@@ -1,20 +1,18 @@
-// SOLMAR 3D — keyboard + mouse. A/D move the player LEFT/RIGHT on screen
-// (never mirrored), mouse look turns the camera the way the mouse moves.
-// One-shot presses are edge-triggered flags: radio next/prev, weapon
-// switch and pause never spin from a held key.
+// Keyboard, mouse and touch input. A is left, D is right, and the mouse
+// look is not mirrored: moving the mouse right turns the view right.
+// One-shot actions (enter a car, pause, switch radio station) are
+// edge-triggered — one press, one action — so the radio never spins.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
-export const ACTION_RADIO_NEXT = 4;
-export const ACTION_RADIO_PREV = 8;
-export const ACTION_WEAPON_NEXT = 16;
-export const ACTION_WEAPON_PREV = 32;
-export const ACTION_ENTER = 64;
+export const ACTION_ENTER = 4;
+export const ACTION_RADIO_NEXT = 8;
+export const ACTION_RADIO_PREV = 16;
+export const ACTION_WEAPON_NEXT = 32;
+export const ACTION_RELOAD = 64;
 export const ACTION_HORN = 128;
-export const ACTION_RELOAD = 256;
-export const ACTION_MAP = 512;
-export const ACTION_EXIT = 1024;
+export const ACTION_CAMERA = 256;
 
-export const KEYMAP = {
+const KEYMAP = {
   KeyW: 'forward', ArrowUp: 'forward',
   KeyS: 'back', ArrowDown: 'back',
   KeyA: 'left', ArrowLeft: 'left',
@@ -23,91 +21,88 @@ export const KEYMAP = {
   Space: 'handbrake',
 };
 
-export function createInput(canvas) {
-  const held = new Set();
+export function createInput(target) {
+  const held = { forward: false, back: false, left: false, right: false, run: false, handbrake: false };
   let actions = 0;
-  let lookDX = 0;
-  let lookDY = 0;
+  let mouseDX = 0;
   let locked = false;
 
-  function press(code) {
-    if (code === 'Space' || code === 'Enter') actions |= ACTION_CONFIRM;
-    else if (code === 'KeyP' || code === 'Escape') actions |= ACTION_PAUSE;
-    else if (code === 'BracketRight') actions |= ACTION_RADIO_NEXT;
-    else if (code === 'BracketLeft') actions |= ACTION_RADIO_PREV;
-    else if (code === 'Digit1') actions |= ACTION_WEAPON_NEXT;
-    else if (code === 'Digit2') actions |= ACTION_WEAPON_PREV;
-    else if (code === 'KeyE') actions |= ACTION_ENTER;
-    else if (code === 'KeyH') actions |= ACTION_HORN;
-    else if (code === 'KeyR') actions |= ACTION_RELOAD;
-    else if (code === 'KeyM') actions |= ACTION_MAP;
-    else if (code === 'KeyQ') actions |= ACTION_EXIT;
+  function press(action) {
+    actions |= action;
   }
 
   window.addEventListener('keydown', (event) => {
-    if (KEYMAP[event.code]) held.add(KEYMAP[event.code]);
-    if (!event.repeat) press(event.code);
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
+    const name = KEYMAP[event.code];
+    if (name) {
+      held[name] = true;
+      event.preventDefault();
+      return;
+    }
+    if (event.repeat) return;
+    if (event.code === 'KeyE') press(ACTION_ENTER);
+    else if (event.code === 'KeyP' || event.code === 'Escape') press(ACTION_PAUSE);
+    else if (event.code === 'Space' || event.code === 'Enter') press(ACTION_CONFIRM);
+    else if (event.code === 'BracketRight') press(ACTION_RADIO_NEXT);
+    else if (event.code === 'BracketLeft') press(ACTION_RADIO_PREV);
+    else if (event.code === 'KeyQ') press(ACTION_WEAPON_NEXT);
+    else if (event.code === 'KeyR') press(ACTION_RELOAD);
+    else if (event.code === 'KeyH') press(ACTION_HORN);
+    else if (event.code === 'KeyC') press(ACTION_CAMERA);
   });
   window.addEventListener('keyup', (event) => {
-    if (KEYMAP[event.code]) held.delete(KEYMAP[event.code]);
+    const name = KEYMAP[event.code];
+    if (name) held[name] = false;
   });
-  window.addEventListener('blur', () => held.clear());
-  document.addEventListener('mousemove', (event) => {
-    if (!locked) return;
-    // Mouse right -> look right; mouse up -> look up. No inversion, no mirror.
-    lookDX += event.movementX;
-    lookDY += event.movementY;
+  window.addEventListener('blur', () => {
+    for (const key of Object.keys(held)) held[key] = false;
   });
-  canvas.addEventListener('click', () => {
-    if (canvas.requestPointerLock) canvas.requestPointerLock();
+
+  // Mouse look: pointer lock, right is right. The delta is never negated.
+  target.addEventListener('click', () => {
+    if (target.requestPointerLock) target.requestPointerLock();
   });
   document.addEventListener('pointerlockchange', () => {
-    locked = document.pointerLockElement === canvas;
+    locked = document.pointerLockElement === target;
   });
-  canvas.addEventListener('mousedown', (event) => {
-    if (event.button === 0) held.add('fire');
-    if (event.button === 2) held.add('aim');
+  document.addEventListener('mousemove', (event) => {
+    if (locked) mouseDX += event.movementX;
+  });
+  target.addEventListener('mousedown', (event) => {
+    if (event.button === 0) held.fire = true;
+    if (event.button === 2) held.aim = true;
   });
   window.addEventListener('mouseup', (event) => {
-    if (event.button === 0) held.delete('fire');
-    if (event.button === 2) held.delete('aim');
+    if (event.button === 0) held.fire = false;
+    if (event.button === 2) held.aim = false;
   });
-  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+  target.addEventListener('contextmenu', (event) => event.preventDefault());
 
   return {
-    // -1..1 strafe (A = -1 left, D = +1 right), -1..1 forward (W = +1).
-    move() {
-      const x = (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0);
-      const z = (held.has('forward') ? 1 : 0) - (held.has('back') ? 1 : 0);
-      return { x, z };
+    held,
+    /** -1 for left (A), +1 for right (D). Never mirrored. */
+    steer() {
+      return (held.right ? 1 : 0) - (held.left ? 1 : 0);
     },
-    run() {
-      return held.has('run');
+    /** Mouse look delta since the last read, in pixels, right positive. */
+    takeMouseDX() {
+      const dx = mouseDX;
+      mouseDX = 0;
+      return dx;
     },
-    handbrake() {
-      return held.has('handbrake');
-    },
-    firing() {
-      return held.has('fire');
-    },
-    aiming() {
-      return held.has('aim');
-    },
-    // Mouse look deltas since last take, consumed once.
-    takeLook() {
-      const out = { dx: lookDX, dy: lookDY };
-      lookDX = 0;
-      lookDY = 0;
-      return out;
-    },
+    /** One-shot presses since the last call, as ACTION_* flags. */
     takeActions() {
       const taken = actions;
       actions = 0;
       return taken;
     },
-    isLocked() {
-      return locked;
-    },
+  };
+}
+
+/** A synthetic input for headless tests and the autopilot. */
+export function stubInput(overrides) {
+  return {
+    steer: 0, forward: false, back: false, run: false,
+    handbrake: false, fire: false, enter: false,
+    climbUp: false, climbDown: false, ...overrides,
   };
 }

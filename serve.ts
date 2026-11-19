@@ -2,12 +2,15 @@
 // locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
 // It sends the MIME types a browser game needs, refuses any path outside game/, and otherwise
 // does nothing clever: this is a development convenience, not a web server for the internet.
-import { createReadStream, statSync } from 'node:fs';
+// SOLMAR addition: the server also answers /__shot-ready, which the shot tool polls, and
+// serves the screenshots directory so a preview page can show them.
+import { createReadStream, statSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const shotsRoot = resolve(fileURLToPath(new URL('./screenshots', import.meta.url)));
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
 const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
@@ -46,9 +49,13 @@ createServer((request, response) => {
     response.writeHead(400).end('bad request');
     return;
   }
+  // Screenshots are served beside the game for preview pages.
+  let base = root;
+  if (pathname.startsWith('/screenshots/')) base = shotsRoot;
   if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const rel = pathname.startsWith('/screenshots/') ? pathname.slice('/screenshots/'.length) : pathname;
+  const file = resolve(join(base, normalize(rel)));
+  if (file !== base && !file.startsWith(base + sep)) {
     response.writeHead(403).end('forbidden');
     return;
   }

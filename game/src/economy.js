@@ -1,54 +1,60 @@
-// SOLMAR 3D — money, respect and prices. The economy is a table plus a
-// few pure functions: no system invents a payout, a price or a title.
-import { MISSIONS, PRICES, respectTitleFor } from './data.js';
+// Money, respect and property. Cash comes from missions, taxi fares and
+// the penthouse income; respect is a named rank that grows with every job.
+import { ECONOMY } from './config.js';
+import { respectName } from './data.js';
 
-export { respectTitleFor, PRICES };
+export { respectName };
 
-export function missionPayout(missionId) {
-  const m = MISSIONS.find((x) => x.id === missionId);
-  return m ? m.payout : 0;
+export function createEconomy() {
+  return { cash: ECONOMY.startCash, respect: 0, penthouse: false, garage: false, day: 1, earned: 0, spent: 0 };
 }
 
-export function missionRespect(missionId) {
-  const m = MISSIONS.find((x) => x.id === missionId);
-  return m ? m.respect : 0;
+/** Pay out a mission: cash plus respect, both recorded. */
+export function payMission(economy, payout, respect) {
+  economy.cash += payout;
+  economy.respect += respect;
+  economy.earned += payout;
+  return economy;
 }
 
-// A taxi fare: base plus distance, in dollars.
-export function taxiFare(distanceUnits) {
-  return Math.round(PRICES.taxiFareBase + distanceUnits * PRICES.taxiFarePerUnit);
+/** Spend cash when the player can afford it. Returns true on sale. */
+export function spend(economy, amount) {
+  if (economy.cash < amount) return false;
+  economy.cash -= amount;
+  economy.spent += amount;
+  return true;
 }
 
-// Penthouse pays once a day while owned.
-export function penthouseIncome(daysOwned) {
-  return daysOwned > 0 ? PRICES.penthouseIncomePerDay : 0;
+/** A taxi fare: base plus distance, paid on drop-off. */
+export function taxiFare(distanceMetres) {
+  return Math.round(ECONOMY.taxiFareBase + distanceMetres * ECONOMY.taxiFarePerMetre);
 }
 
-// Percentage of the game complete: missions + tapes + races + property.
-export function completionPercent(state) {
-  const missionPart = (state.missions.completed.length / MISSIONS.length) * 55;
-  const tapePart = (state.postcardsFound.size / 20) * 20;
-  const racePart = (state.racesWon / 3) * 15;
-  const propPart = state.penthouseOwned ? 10 : 0;
-  return Math.min(100, Math.round(missionPart + tapePart + racePart + propPart));
+/** Penthouse income, paid once per in-game day. */
+export function dailyIncome(economy) {
+  if (!economy.penthouse) return 0;
+  economy.cash += ECONOMY.penthouseIncomePerDay;
+  economy.earned += ECONOMY.penthouseIncomePerDay;
+  return ECONOMY.penthouseIncomePerDay;
 }
 
-// Lifetime stats the pause screen shows, kept on the save.
-export function emptyStats() {
-  return {
-    distanceDriven: 0, distanceWalked: 0, carsStolen: 0, pursuitsEscaped: 0,
-    racesWon: 0, taxiFares: 0, kills: 0, shotsFired: 0, shotsHit: 0,
-    missionsDone: 0, timePlayedSeconds: 0,
-  };
+/** Buy the penthouse: the big purchase that also pays a daily income. */
+export function buyPenthouse(economy) {
+  if (economy.penthouse) return false;
+  if (!spend(economy, ECONOMY.penthousePrice)) return false;
+  economy.penthouse = true;
+  return true;
 }
 
-export function addCash(state, amount, reason) {
-  state.player.cash += amount;
-  state.notices.push({ text: `${amount >= 0 ? '+' : ''}$${amount} — ${reason}`, ttl: 4 });
-  if (state.player.cash < 0) state.player.cash = 0;
+/** Buy the garage: room for the cars the player keeps. */
+export function buyGarage(economy) {
+  if (economy.garage) return false;
+  if (!spend(economy, ECONOMY.garagePrice)) return false;
+  economy.garage = true;
+  return true;
 }
 
-export function addRespect(state, amount) {
-  state.player.respect += amount;
-  state.player.respectTitle = respectTitleFor(state.player.respect);
+/** The player's current respect rank, in plain English. */
+export function rank(economy) {
+  return respectName(economy.respect);
 }

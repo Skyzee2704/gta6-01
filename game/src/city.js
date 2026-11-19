@@ -1,261 +1,236 @@
-// SOLMAR 3D — the city itself. A round island, a ring road, a street
-// grid, a coastal boulevard: the layout is generated from a seed, but
-// the districts, landmarks and named streets are fixed, so every system
-// (traffic, police, missions, shots) agrees on the map.
-// No building footprint may sit within ROADS.setback of a road centreline.
-import { WORLD, ROADS, CITY } from './config.js';
-import { makeRng, clamp, dist2 } from './random.js';
-import { DISTRICTS } from './data.js';
+// The city itself: a round island, generated once per seed. Roads are a ring
+// plus six spokes plus a downtown grid; every building footprint is checked
+// clear of every road centreline by ROAD_SETBACK, so no building ever covers
+// a road. The same data feeds the sim, the renderer and the cityCheck gate.
+import { CITY, WORLD, DISTRICTS } from './config.js';
+import { MISSIONS, POSTCARDS, INTERIORS, RACE_ROUTES } from './data.js';
+import { createRandom, floatBetween, intBetween, pick, dist2d } from './random.js';
 
-const PASTEL = [0xe8b4a0, 0xf2d8a0, 0xa8c8e8, 0xc8b4e8, 0xa8d8b4, 0xe8a8b8, 0xd8d0c0, 0x9ac8d8, 0xe8c8a0, 0xb8a8d8];
-const ROOFS = ['flat', 'flat', 'flat', 'parapet', 'sloped', 'tower'];
+/**
+ * Gameplay points no building may ever cover: mission step targets,
+ * postcards, interiors, race waypoints, the spawn, the safehouse, the
+ * penthouse and the heli pad. A mission whose target sits inside a
+ * building can never be finished, whatever the seed.
+ */
+export const PROTECTED_POINTS = (() => {
+  const pts = [
+    { x: 330, y: 396 }, // player spawn, Marina Boulevard
+    { x: 210, y: 150 }, // Old Town Safehouse
+    { x: 300, y: 210 }, // Penthouse Tower
+    { x: 320, y: 200 }, // heli pad, Bank Tower forecourt
+    { x: 330, y: 400 }, // parked coupe
+  ];
+  for (const m of MISSIONS) for (const st of m.steps) pts.push({ x: st.x, y: st.y });
+  for (const p of POSTCARDS) pts.push({ x: p.x, y: p.y });
+  for (const i of INTERIORS) pts.push({ x: i.x, y: i.y });
+  for (const r of RACE_ROUTES) for (const [x, y] of r.path) pts.push({ x, y });
+  return pts;
+})();
 
-function pointSegDist(px, pz, ax, az, bx, bz) {
+function clearOfProtected(x, z, halfDiag) {
+  for (const p of PROTECTED_POINTS) {
+    if (dist2d(x, z, p.x, p.y) < halfDiag + 10) return false;
+  }
+  return true;
+}
+
+export const ROAD_WIDTH = 10;
+export const SIDEWALK_WIDTH = 2.4;
+
+function distToSegment(px, pz, ax, az, bx, bz) {
   const dx = bx - ax;
   const dz = bz - az;
   const len2 = dx * dx + dz * dz;
   let t = len2 === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / len2;
-  t = clamp(t, 0, 1);
-  const cx = ax + t * dx;
-  const cz = az + t * dz;
-  return Math.sqrt(dist2(px, pz, cx, cz));
+  t = Math.max(0, Math.min(1, t));
+  return dist2d(px, pz, ax + t * dx, az + t * dz);
 }
 
-function insideIsland(x, z, margin) {
-  return Math.sqrt(x * x + z * z) < WORLD.islandRadius - margin;
+/**
+ * True when a footprint centre is clear of every road: at least the
+ * 12 m setback from the centreline, and far enough that no corner of the
+ * footprint touches the asphalt. Both conditions, whichever is stricter.
+ */
+export function footprintClearOfRoads(x, z, roads, halfDiag) {
+  const need = Math.max(ROAD_WIDTH / 2 + CITY.roadSetback, ROAD_WIDTH / 2 + halfDiag);
+  for (const road of roads) {
+    if (distToSegment(x, z, road.x1, road.z1, road.x2, road.z2) < need) return false;
+  }
+  return true;
 }
 
-export function buildCity(seed) {
-  const rng = makeRng(seed);
+function ringRoad(cx, cz, radius, segments) {
   const roads = [];
-  const nodes = [];
-  const edges = [];
-  const nodeIndex = new Map();
-  const addNode = (x, z) => {
-    const key = `${Math.round(x)},${Math.round(z)}`;
-    if (nodeIndex.has(key)) return nodeIndex.get(key);
-    const id = nodes.length;
-    nodes.push({ id, x, z });
-    nodeIndex.set(key, id);
-    return id;
-  };
-  const addEdge = (a, b) => {
-    edges.push([a, b]);
-  };
-
-  // Ring road: 24 nodes around the circle.
-  const ringIds = [];
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2;
-    const x = Math.cos(a) * WORLD.ringRoadRadius;
-    const z = Math.sin(a) * WORLD.ringRoadRadius;
-    ringIds.push(addNode(x, z));
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    roads.push({ x1: cx + Math.cos(a0) * radius, z1: cz + Math.sin(a0) * radius * 0.75, x2: cx + Math.cos(a1) * radius, z2: cz + Math.sin(a1) * radius * 0.75, ring: true });
   }
-  for (let i = 0; i < 24; i++) addEdge(ringIds[i], ringIds[(i + 1) % 24]);
-  // The ring polyline is CLOSED: the first node is repeated at the end,
-  // so the segment from node 23 back to node 0 exists for the road
-  // strip, the building setback filter, and the clearance gate. (The
-  // graph edges already closed the ring; the polyline did not — a
-  // building landed on the ring road at (200.8,-19.6), the race camera
-  // was pushed up over its roof, and the race frame went black.)
-  roads.push({ id: 'ring', name: 'Ring Road', width: ROADS.width, points: [...ringIds.map((id) => [nodes[id].x, nodes[id].z]), [nodes[ringIds[0]].x, nodes[ringIds[0]].z]] });
+  return roads;
+}
 
-  // No radial avenues: a radial from the centre cuts every block it
-  // crosses, and eight of them starved the city of buildings (the
-  // mini-grid lost 74 of 154 in-island candidates to road distance).
-  // The grid streets run out to the ring road and join it instead, so
-  // the road graph stays connected and the blocks stay buildable.
-
-  // Street grid in the middle: verticals and horizontals, 60 apart so a
-  // block holds 2x2 buildings clear of the 12-unit road setback. Each
-  // street runs out to the ring road and joins it, so the graph stays
-  // connected without radial avenues — radials cut every central block
-  // and starved the city of buildings, so there are none.
-  const gridX = [-120, -60, 0, 60, 120];
-  const gridZ = [-120, -60, 0, 60, 120];
-  const ringRadius = WORLD.ringRoadRadius;
-  const nearestRingId = (x, z) => {
-    const a = Math.atan2(z, x);
-    const idx = Math.round(((a < 0 ? a + Math.PI * 2 : a) / (Math.PI * 2)) * 24) % 24;
-    return ringIds[idx];
-  };
-  const gridNode = {};
-  for (const gx of gridX) {
-    for (const gz of gridZ) {
-      if (!insideIsland(gx, gz, 20)) continue;
-      gridNode[`${gx},${gz}`] = addNode(gx, gz);
-    }
+function spokeRoads(cx, cz, radius, count) {
+  const roads = [];
+  for (let i = 0; i < count; i += 1) {
+    const a = (i / count) * Math.PI * 2 + 0.26;
+    roads.push({ x1: cx, z1: cz, x2: cx + Math.cos(a) * radius, z2: cz + Math.sin(a) * radius * 0.75, spoke: true });
   }
-  for (const gx of gridX) {
-    const col = gridZ.map((gz) => gridNode[`${gx},${gz}`]).filter((id) => id !== undefined);
-    for (let i = 0; i + 1 < col.length; i++) addEdge(col[i], col[i + 1]);
-    const zMax = Math.floor(Math.sqrt(ringRadius * ringRadius - gx * gx) / 5) * 5;
-    const top = addNode(gx, zMax);
-    const bottom = addNode(gx, -zMax);
-    addEdge(top, nearestRingId(gx, zMax));
-    addEdge(bottom, nearestRingId(gx, -zMax));
-    if (col.length > 1) {
-      addEdge(col[0], bottom);
-      addEdge(col[col.length - 1], top);
-    }
-    roads.push({ id: `street-v-${gx}`, name: gx === 0 ? 'Bank Row' : 'Coral Street', width: ROADS.width, points: [[gx, -zMax], [gx, zMax]] });
-  }
-  for (const gz of gridZ) {
-    const row = gridX.map((gx) => gridNode[`${gx},${gz}`]).filter((id) => id !== undefined);
-    for (let i = 0; i + 1 < row.length; i++) addEdge(row[i], row[i + 1]);
-    const xMax = Math.floor(Math.sqrt(ringRadius * ringRadius - gz * gz) / 5) * 5;
-    const left = addNode(-xMax, gz);
-    const right = addNode(xMax, gz);
-    addEdge(left, nearestRingId(-xMax, gz));
-    addEdge(right, nearestRingId(xMax, gz));
-    if (row.length > 1) {
-      addEdge(row[0], left);
-      addEdge(row[row.length - 1], right);
-    }
-    roads.push({ id: `street-h-${gz}`, name: gz === -60 ? 'Gold Street' : gz === 0 ? 'Neon Avenue' : 'Palm Court', width: ROADS.width, points: [[-xMax, gz], [xMax, gz]] });
-  }
+  return roads;
+}
 
-  // Marina Boulevard: the coastal road on the east edge.
-  const marinaPts = [];
-  for (let z = -120; z <= 120; z += 30) marinaPts.push([182, z]);
-  roads.push({ id: 'marina-blvd', name: 'Marina Boulevard', width: ROADS.width, points: marinaPts });
-  const marinaNodes = marinaPts.map(([x, z]) => addNode(x, z));
-  for (let i = 0; i + 1 < marinaNodes.length; i++) addEdge(marinaNodes[i], marinaNodes[i + 1]);
-  addEdge(marinaNodes[0], nearestRingId(182, -120));
-  addEdge(marinaNodes[marinaNodes.length - 1], nearestRingId(182, 120));
+function gridRoads(cx, cz, half, step) {
+  const roads = [];
+  for (let x = cx - half; x <= cx + half; x += step) roads.push({ x1: x, z1: cz - half, x2: x, z2: cz + half, grid: true });
+  for (let z = cz - half; z <= cz + half; z += step) roads.push({ x1: cx - half, z1: z, x2: cx + half, z2: z, grid: true });
+  return roads;
+}
 
-  // Distance from a point to the nearest road centreline.
-  function distToRoads(x, z) {
-    let best = Infinity;
-    for (const road of roads) {
-      const pts = road.points;
-      for (let i = 0; i + 1 < pts.length; i++) {
-        const d = pointSegDist(x, z, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
-        if (d < best) best = d;
-      }
-    }
-    return best;
-  }
+/** Pastel facade palette: warm, varied, never flat magenta or orange. */
+export const FACADE_COLORS = ['#e8dcc8', '#d9c7a7', '#c8b8d9', '#a7c8d9', '#d9a7a7', '#b8d9a7', '#e8e0b8', '#c8c8c8', '#d9b8c8', '#a7b8c8'];
 
-  // Fixed landmarks: named places missions and shots point at.
-  const landmarks = [
-    { id: 'bank-tower', name: 'Downtown Bank Tower', x: 30, z: -70, w: 26, d: 22, h: 85, kind: 'tower' },
-    { id: 'diner', name: 'Neon Mile Diner', x: -40, z: 30, w: 20, d: 14, h: 9, kind: 'diner' },
-    { id: 'penthouse', name: 'Penthouse Tower', x: 0, z: -100, w: 22, d: 20, h: 64, kind: 'tower' },
-    { id: 'garage', name: 'Rosa’s Garage', x: -20, z: 62, w: 24, d: 16, h: 8, kind: 'garage' },
-    { id: 'safehouse', name: 'Safehouse', x: -150, z: -20, w: 16, d: 12, h: 10, kind: 'house' },
-    { id: 'helipad', name: 'Helipad', x: -60, z: -165, w: 24, d: 24, h: 2, kind: 'pad' },
-    { id: 'ferris', name: 'Ferris Wheel', x: 200, z: 40, w: 18, d: 18, h: 30, kind: 'wheel' },
-    { id: 'lighthouse', name: 'The Lighthouse', x: 215, z: -80, w: 8, d: 8, h: 34, kind: 'tower' },
-    { id: 'market', name: 'Harbor Market', x: -90, z: -140, w: 30, d: 18, h: 10, kind: 'market' },
-    { id: 'marina-bar', name: 'Marina Bar', x: 170, z: 55, w: 16, d: 12, h: 8, kind: 'bar' },
+export const ROOF_SHAPES = ['flat', 'gable', 'hip', 'parapet', 'dome', 'sawtooth'];
+
+export function generateCity(seed) {
+  const random = createRandom(seed);
+  const cx = WORLD.centreX;
+  const cz = WORLD.centreY;
+  const roads = [
+    ...ringRoad(cx, cz, 150, 24),
+    ...ringRoad(cx, cz, 88, 20),
+    ...spokeRoads(cx, cz, 210, 6),
+    // Downtown grid, 48 m blocks: wide enough that a building centre can
+    // sit 17 m clear of every road and still fit between two streets.
+    ...gridRoads(cx, cz, 72, 48),
+    // Marina Boulevard runs along the south shore, where the cover chase happens.
+    { x1: 130, z1: 396, x2: 510, z2: 396, boulevard: true },
+    { x1: 130, z1: 84, x2: 510, z2: 84, boulevard: true },
   ];
 
-  // Buildings: two sources. (1) Block interiors: each 60x60 block holds
-  // up to 2x2 buildings, jittered, with every footprint edge >= 12.5
-  // from any road centreline (the 12-unit setback, plus margin).
-  // (2) The annulus between the street grid and the ring road, on a
-  // jittered 24-unit grid. The old single-grid pass starved the city:
-  // its points sat almost on the streets (median 6 units away).
   const buildings = [];
-  const placed = [];
-  const debug = { candidates: 0, rejectedIsland: 0, rejectedRoad: 0, rejectedLandmark: 0, rejectedClash: 0, placed: 0, roadFailures: [] };
-  const tryPlace = (x, z, big = false) => {
-    debug.candidates += 1;
-    if (buildings.length >= CITY.buildingTarget) return;
-    if (!insideIsland(x, z, 26)) { debug.rejectedIsland += 1; return; }
-    const district = nearestDistrict(x, z);
-    const downtown = district.id === 'downtown';
-    // Size follows the placement kind, not the district: a wide tower
-    // cannot sit at a block edge, so only the centre placement is big.
-    // Height still follows the district — downtown reads tall.
-    const w = rng.range(9, big ? 20 : 11);
-    const d = rng.range(9, big ? 18 : 11);
-    if (distToRoads(x, z) < 12.5 + Math.max(w, d) / 2) {
-      debug.rejectedRoad += 1;
-      if (debug.roadFailures.length < 25) {
-        debug.roadFailures.push({ x: +x.toFixed(1), z: +z.toFixed(1), dist: +distToRoads(x, z).toFixed(1), need: +(12.5 + Math.max(w, d) / 2).toFixed(1) });
-      }
-      return;
+  // Candidates on a jittered grid cover the island evenly; pure random
+  // sampling kept missing the gaps between roads and stalled near 100.
+  const candidates = [];
+  for (let gx = 70; gx <= 570; gx += 22) {
+    for (let gz = 50; gz <= 430; gz += 22) {
+      candidates.push({ x: gx + floatBetween(random, -7, 7), z: gz + floatBetween(random, -7, 7) });
     }
-    for (const lm of landmarks) {
-      if (Math.abs(x - lm.x) < (lm.w / 2 + w / 2 + 2) && Math.abs(z - lm.z) < (lm.d / 2 + d / 2 + 2)) { debug.rejectedLandmark += 1; return; }
+  }
+  // A second, offset grid fills the gaps the first grid's roads ate.
+  for (let gx = 81; gx <= 570; gx += 22) {
+    for (let gz = 61; gz <= 430; gz += 22) {
+      candidates.push({ x: gx + floatBetween(random, -7, 7), z: gz + floatBetween(random, -7, 7) });
     }
-    for (const p of placed) {
-      if (Math.abs(x - p.x) < (w + p.w) / 2 + 2 && Math.abs(z - p.z) < (d + p.d) / 2 + 2) { debug.rejectedClash += 1; return; }
+  }
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    const tmp = candidates[i];
+    candidates[i] = candidates[j];
+    candidates[j] = tmp;
+  }
+  let ci = 0;
+  let tries = 0;
+  while (buildings.length < CITY.buildingCount && (ci < candidates.length || tries < 8000)) {
+    let x;
+    let z;
+    if (ci < candidates.length) {
+      x = candidates[ci].x;
+      z = candidates[ci].z;
+      ci += 1;
+    } else {
+      tries += 1;
+      const angle = random() * Math.PI * 2;
+      const radius = 26 + random() * 196;
+      x = cx + Math.cos(angle) * radius;
+      z = cz + Math.sin(angle) * radius * 0.75;
     }
-    const floors = downtown ? rng.int(4, 16) : rng.int(1, 5);
+    // Ellipse test, matching the island's shape — the Euclidean test threw
+    // away good plots at the north and south shores.
+    const ex = (x - cx) / (WORLD.landRadius - 26);
+    const ez = (z - cz) / ((WORLD.landRadius - 26) * 0.75);
+    if (ex * ex + ez * ez > 1) continue;
+    // Downtown blocks are small and tall; outer plots take bigger footprints.
+    const downtown = dist2d(x, z, cx, cz) < 78;
+    const w = downtown ? floatBetween(random, 8, 14) : floatBetween(random, 10, 18);
+    const d = downtown ? floatBetween(random, 8, 14) : floatBetween(random, 10, 16);
+    const halfDiag = Math.sqrt(w * w + d * d) / 2;
+    if (!footprintClearOfRoads(x, z, roads, halfDiag)) continue;
+    if (!clearOfProtected(x, z, halfDiag)) continue;
+    let clash = false;
+    for (const b of buildings) {
+      if (Math.abs(b.x - x) < (b.w + w) / 2 + 2 && Math.abs(b.z - z) < (b.d + d) / 2 + 2) { clash = true; break; }
+    }
+    if (clash) continue;
+    const floors = downtown ? intBetween(random, 6, 18) : intBetween(random, 1, 5);
     buildings.push({
-      x, z, w, d, h: floors * 3.4 + 2, floors,
-      color: rng.pick(PASTEL), district: district.id,
-      roof: rng.pick(ROOFS), neon: rng.chance(district.id === 'neonmile' ? 0.5 : 0.12),
-      awning: rng.chance(0.4), litFrac: rng.range(0.25, 0.75), rotY: rng.chance(0.5) ? 0 : Math.PI / 2,
+      x, z, w, d, h: floors * 3.4 + 1.2, floors,
+      color: pick(random, FACADE_COLORS), roof: pick(random, ROOF_SHAPES),
+      lit: random(), setback: random() < 0.3, awning: random() < 0.45,
+      neon: random() < 0.22 ? pick(random, ['#ff4fd8', '#37e6ff', '#ffb02e']) : null,
+      rot: (random() - 0.5) * 0.12,
     });
-    placed.push({ x, z, w, d });
-    debug.placed += 1;
-  };
-  const xEdges = [-180, -120, -60, 0, 60, 120, 180];
-  const zEdges = [-180, -120, -60, 0, 60, 120, 180];
-  for (let bi = 0; bi + 1 < xEdges.length; bi++) {
-    for (let bj = 0; bj + 1 < zEdges.length; bj++) {
-      // Mini-grid of centres inside the block, each at least the setback
-      // plus half a building from every street. Small buildings (9-11)
-      // fit 2x2; a downtown block gets one big tower at its centre
-      // instead, because a wide tower cannot sit near a block edge.
-      const cx = (xEdges[bi] + xEdges[bi + 1]) / 2;
-      const cz = (zEdges[bj] + zEdges[bj + 1]) / 2;
-      if (nearestDistrict(cx, cz).id === 'downtown') {
-        tryPlace(cx + rng.range(-2, 2), cz + rng.range(-2, 2), true);
-        continue;
-      }
-      for (let gx = xEdges[bi] + 20; gx <= xEdges[bi + 1] - 20; gx += 15) {
-        for (let gz = zEdges[bj] + 20; gz <= zEdges[bj + 1] - 20; gz += 15) {
-          tryPlace(gx + rng.range(-1, 1), gz + rng.range(-1, 1));
-        }
-      }
-    }
-  }
-  for (let gx = -210; gx <= 210; gx += 24) {
-    for (let gz = -210; gz <= 210; gz += 24) {
-      if (Math.abs(gx) <= 168 && Math.abs(gz) <= 168) continue; // block area
-      tryPlace(gx + rng.range(-6, 6), gz + rng.range(-6, 6));
-    }
   }
 
-  // Palms and street trees: beach palms on the east edge, street trees
-  // along the grid, ring palms around the island.
+  // Landmarks sit on fixed, road-clear plots so the cover always finds them.
+  const landmarks = [
+    { id: 'bank-tower', name: 'Downtown Bank Tower', x: 320, y: 226, kind: 'tower', h: 68 },
+    { id: 'ferris', name: 'Palma Ferris Wheel', x: 176, y: 380, kind: 'ferris', h: 42 },
+    { id: 'lighthouse', name: 'Harbor Lighthouse', x: 472, y: 96, kind: 'lighthouse', h: 34 },
+    { id: 'marina-pier', name: 'Marina Pier', x: 330, y: 414, kind: 'pier', h: 4 },
+    { id: 'penthouse', name: 'Penthouse Tower', x: 300, y: 210, kind: 'tower', h: 52 },
+  ];
+
   const palms = [];
-  const addPalm = (x, z, kind) => {
-    if (!insideIsland(x, z, 6)) return;
-    if (distToRoads(x, z) < 6) return; // palms line the road edge
-    palms.push({ x, z, h: rng.range(5.5, 8.5), lean: rng.range(-0.12, 0.12), kind });
-  };
-  for (let z = -170; z <= 170; z += 11) addPalm(196 + rng.range(-4, 4), z, 'palm');
-  for (let a = 0; a < Math.PI * 2; a += 0.24) addPalm(Math.cos(a) * 196, Math.sin(a) * 196, 'palm');
-  for (const gx of gridX) for (let gz = -140; gz <= 140; gz += 26) addPalm(gx + 10, gz, 'street');
-  for (const gz of gridZ) for (let gx = -170; gx <= 170; gx += 26) addPalm(gx, gz + 10, 'street');
-  while (palms.length > CITY.palmTarget) palms.splice(rng.int(0, palms.length - 1), 1);
-
-  // Named road lookup for the HUD district banner.
-  function districtAt(x, z) {
-    return nearestDistrict(x, z);
+  for (let i = 0; i < CITY.palmCount; i += 1) {
+    const angle = random() * Math.PI * 2;
+    const radius = WORLD.landRadius - 8 - random() * 26;
+    const x = cx + Math.cos(angle) * radius;
+    const z = cz + Math.sin(angle) * radius * 0.75;
+    palms.push({ x, z, h: floatBetween(random, 5.5, 8.5), lean: floatBetween(random, -0.16, 0.16), fronds: intBetween(random, 6, 9) });
   }
-  function nearestDistrict(x, z) {
-    let best = DISTRICTS[0];
-    let bestD = Infinity;
-    for (const d of DISTRICTS) {
-      const dd = dist2(x, z, d.cx, d.cz);
-      if (dd < bestD) { bestD = dd; best = d; }
+  const trees = [];
+  for (let i = 0; i < CITY.treeCount; i += 1) {
+    const angle = random() * Math.PI * 2;
+    const radius = 30 + random() * 170;
+    const x = cx + Math.cos(angle) * radius;
+    const z = cz + Math.sin(angle) * radius * 0.75;
+    if (dist2d(x, z, cx, cz) > WORLD.landRadius - 20) continue;
+    trees.push({ x, z, h: floatBetween(random, 4, 6.5), canopy: floatBetween(random, 1.6, 2.6) });
+  }
+
+  const lamps = [];
+  for (const road of roads) {
+    const len = dist2d(road.x1, road.z1, road.x2, road.z2);
+    const count = Math.floor(len / CITY.lampSpacing);
+    for (let i = 1; i < count; i += 1) {
+      const t = i / count;
+      lamps.push({ x: road.x1 + (road.x2 - road.x1) * t, z: road.z1 + (road.z2 - road.z1) * t, side: i % 2 === 0 ? 1 : -1 });
     }
-    return best;
   }
 
-  return {
-    seed, roads, nodes, edges, landmarks, buildings, palms, debug,
-    distToRoads, districtAt,
-    playerSpawn: { x: -8, z: -52, heading: Math.PI / 2 },
-    carSpawn: { x: 175, z: 20, heading: Math.PI, type: 'vortex' },
-    marina: { x: 190, z: 40 },
-    beach: { x: 205, z: 90 },
-  };
+  return { seed, roads, buildings, landmarks, palms, trees, lamps, districts: DISTRICTS };
+}
+
+/** The district whose centre is nearest a point. */
+export function districtAt(x, z) {
+  let best = DISTRICTS[0];
+  let bestD = Infinity;
+  for (const d of DISTRICTS) {
+    const dd = dist2d(x, z, d.x, d.y);
+    if (dd < bestD) { bestD = dd; best = d; }
+  }
+  return best;
+}
+
+/** True when a point is on land (inside the round map). */
+export function onLand(x, z) {
+  const dx = (x - WORLD.centreX) / WORLD.landRadius;
+  const dz = (z - WORLD.centreY) / (WORLD.landRadius * 0.75);
+  return dx * dx + dz * dz <= 1;
+}
+
+/** True when a point is in the sea (outside the beach ring). */
+export function inSea(x, z) {
+  const dx = (x - WORLD.centreX) / (WORLD.landRadius + 60);
+  const dz = (z - WORLD.centreY) / ((WORLD.landRadius + 60) * 0.75);
+  return dx * dx + dz * dz > 1;
 }
