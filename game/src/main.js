@@ -1,748 +1,527 @@
-// SOLMAR 3D — main: wiring. Screens (title / play / paused / over),
-// game loop, player on foot + driving, camera, HUD + minimap updates,
-// police / traffic / NPC / mission / race / audio updates, save/load,
-// interiors, and the window hooks the shot + playtest tools use.
-import { WORLD_W, WORLD_H, GAME_TITLE } from './config.js';
-import { createWorld, advanceWorld, setWanted, districtAt, addNotice } from './world.js';
-import { buildCity, districtAtPoint } from './city.js';
-import { createRenderer, SCREEN_TITLE, SCREEN_PLAY, SCREEN_PAUSED, SCREEN_OVER } from './render.js';
-import { createMaterials, glowSprite } from './materials.js';
-import { buildBuildings, buildingAt } from './buildings.js';
-import { buildProps } from './props.js';
-import { createInput } from './input.js';
-import { createMissionEngine, startMission, updateMission, missionStatus, reportProgress, completeMission, failMission } from './missions.js';
-import { createPolice, updatePolice, responseList, wantedForHeat } from './police.js';
-import { createNpcManager, updateNpcs } from './npc.js';
-import { createTraffic, updateTraffic } from './traffic.js';
-import { createCombat, updateCombat, fireAt, targetChevron } from './combat.js';
-import { createVehicleState, updateVehicle, buildVehicleMesh, updateVehicleMesh, damageVehicle, vehicleById } from './vehicles.js';
-import { buildCharacterMesh, buildPedMesh, updateWalkCycle, updateChaseCamera, keepClearPosition } from './character.js';
-import { createWeaponState, fireWeapon, startReload, updateWeapon } from './weapons.js';
-import { createWeather, updateWeather } from './weather.js';
-import { createSideState, findPostcard } from './side.js';
-import { createRace, startRace, updateRace, raceBoard, finishRace, nextCheckpoint } from './races.js';
-import { createAudio, ensureAudio, nextStation, prevStation, showNowPlaying, nowPlayingVisible, scheduleStep, playGunshot, setEngineSound, playSiren } from './audio.js';
-import { createHUD, updateHUD, showPause, hidePause, pauseStatsHTML, pauseMapHTML } from './hud.js';
-import { drawMinimap, drawCityMap } from './minimap.js';
-import { createDialogue, dialogueFor } from './dialogue.js';
-import { drawPortrait, castRow } from './portraits.js';
-import { saveGame, loadGame, hasSave, buildMidGameStaging, computeComplete } from './save.js';
-import { buyWeapon } from './economy.js';
-import { buildHeliMesh, updateHeliMesh } from './aircraft.js';
-import { buildBoatMesh, createBoatState, updateBoat } from './boats.js';
-import { buildInteriorRoom, interiorAt, enterInterior, exitInterior } from './interiors.js';
-import { missionById, weaponById, respectTierFor, MISSIONS } from './data.js';
-import { stageShot } from './shots.js';
+// SOLMAR 3D — boot and the one loop. Input every frame, the world in
+// fixed 1/60 s steps, the renderer paints what is there. Four screens:
+// title, play, paused, game over. ?shot=cover|race|onfoot|map stages
+// that screenshot instead of running the loop, renders it, measures
+// luma and the NDC check, and sets window.__shotReady for the tool.
+// ?demo=1 plays the cover escape on autopilot for the preview video.
+import { TIME } from './config.js';
+import { createState, stepWorld, idleInput } from './world.js';
+import {
+  ACTION_CONFIRM, ACTION_PAUSE, ACTION_MAP, createInput,
+} from './input.js';
+import { createRenderer, renderFrame, makeProjector, resizeRenderer, renderStats } from './render.js';
+import { drawHUD, drawTitle, drawPause, drawGameOver } from './hud.js';
+import { drawMinimap } from './minimap.js';
+import { drawRaceHUD } from './races.js';
+import { drawArcade } from './minigames.js';
+import { stageShot, computeLuma, checkNDC } from './shots.js';
+import { loadFromSlot, saveToSlot, autopilotInput } from './save.js';
+import { contextPrompt } from './side.js';
+import { missionObjectiveText } from './missions.js';
 
-export function createGame(canvas, hudRoot, opts = {}) {
-  const seed = opts.seed || 1;
-  const staging = opts.staging ? buildMidGameStaging() : null;
-  const world = staging ? { ...createWorld(seed), ...staging, player: { ...createWorld(seed).player, ...staging.player } } : createWorld(seed);
-  if (opts.shot) world.frozen = true;
-  const city = buildCity(seed);
-  const materials = createMaterials();
-  const renderer = createRenderer(canvas, world);
-  renderer.scene.add(buildBuildings(city, materials));
-  renderer.scene.add(buildProps(city, materials));
-  const weather = createWeather(seed);
-  const input = createInput();
-  input.attach();
-  const hud = createHUD(hudRoot);
-  const audio = createAudio();
-  const missions = createMissionEngine();
-  const police = createPolice(seed);
-  const npcs = createNpcManager(seed);
-  const traffic = createTraffic(seed);
-  const combat = createCombat(seed);
-  const side = createSideState(seed);
-  const race = createRace(seed);
-  const dialogue = createDialogue();
-  const playerMesh = buildCharacterMesh({ skin: 0xe8b890, shirt: 0xc22e2e, pants: 0x2a3542, hair: 0x2a2018 });
-  renderer.scene.add(playerMesh);
-  const vehicleMeshes = new Map();
-  const pedMeshes = new Map();
-  const copMeshes = new Map();
-  const rivalMeshes = new Map();
-  let heliMesh = null;
-  let playerVehicle = null;
-  let playerVehicleMesh = null;
-  let shotCam = null;
-  let weapon = createWeaponState(world.owned.weapons[0] || 'pistol', world.ammo[world.owned.weapons[0]] || 48, 90);
-  let screen = SCREEN_TITLE;
-  let topdown = false;
-  let lastTime = 0;
-  let frameCount = 0;
-  let shotReady = false;
-  let beacon = null;
+const STEP = 1 / 60;
+const MAX_FRAME = 0.25;
+const params = new URLSearchParams(window.location.search);
+const shotName = params.get('shot');
+const demoParam = params.get('demo');
+const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
+const seed = Number.isInteger(seedParam) ? seedParam : 1;
 
-  const game = {
-    world,
-    city,
-    renderer,
-    input,
-    hud,
-    audio,
-    missions,
-    police,
-    npcs,
-    traffic,
-    combat,
-    side,
-    race,
-    get screen() { return screen; },
-    set screen(v) { screen = v; },
-    get shotReady() {
-      return shotReady;
-    },
-    start,
-    stop,
-    enterVehicle,
-    exitVehicle,
-    triggerMission,
-    triggerRace,
-    buyWeaponNow(id) { return buyWeapon(world, id); },
-    saveNow() { return saveGame(world); },
-    loadNow() { return loadGame(); },
-    enterInteriorNow() {
-      const def = interiorAt(world.player.x, world.player.y);
-      if (!def) return null;
-      return enterInterior(world, def);
-    },
-    exitInteriorNow() { return exitInterior(world); },
+const gameCanvas = document.getElementById('game');
+const hudCanvas = document.getElementById('hud');
+const statusEl = document.getElementById('status');
+
+function fitCanvases(W, H) {
+  gameCanvas.width = W;
+  gameCanvas.height = H;
+  hudCanvas.width = W;
+  hudCanvas.height = H;
+}
+
+function announce(message) {
+  if (statusEl) statusEl.textContent = message;
+}
+
+// The drawn city map: parchment, the round island, roads, labels, the
+// mission list, the legend and the lifetime stats. Used by the map shot
+// and by the M key / pause MAP tab.
+export function drawMapScreen(ctx, state, W, H) {
+  ctx.fillStyle = '#e8e0c8';
+  ctx.fillRect(0, 0, W, H);
+  const cx = W * 0.32;
+  const cy = H * 0.52;
+  const radius = Math.min(W, H) * 0.42;
+  const scale = radius / 232;
+  const toMap = (x, z) => ({ x: cx + x * scale, y: cy + z * scale });
+  // Sea, sand, grass.
+  ctx.fillStyle = '#7ab8d8';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#d8c48f';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#8aa86a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  // Roads.
+  ctx.strokeStyle = '#3a3a3e';
+  ctx.lineWidth = 4;
+  for (const road of state.city.roads) {
+    ctx.beginPath();
+    road.points.forEach(([x, z], i) => {
+      const p = toMap(x, z);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+  }
+  // Landmarks.
+  ctx.font = 'bold 13px Arial';
+  ctx.textAlign = 'left';
+  for (const lm of state.city.landmarks) {
+    const p = toMap(lm.x, lm.z);
+    ctx.fillStyle = '#8a2a3a';
+    ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+    ctx.fillStyle = '#2a2a30';
+    ctx.fillText(lm.name, p.x + 8, p.y + 4);
+  }
+  // The player.
+  const pp = toMap(state.player.x, state.player.z);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(pp.x, pp.y, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#16121a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Mission marker.
+  if (state.missions.marker) {
+    const mp = toMap(state.missions.marker.x, state.missions.marker.z);
+    ctx.fillStyle = '#ffd34a';
+    ctx.save();
+    ctx.translate(mp.x, mp.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-7, -7, 14, 14);
+    ctx.restore();
+  }
+  // Right column: title, mission list, legend, stats.
+  const rx = W * 0.68;
+  ctx.fillStyle = '#2a2a30';
+  ctx.font = 'bold 30px Arial';
+  ctx.fillText('SOLMAR CITY', rx, 90);
+  ctx.font = '15px Arial';
+  ctx.fillStyle = '#5a5a60';
+  ctx.fillText('The island is round. The law is not.', rx, 116);
+  const mission = missionObjectiveText(state);
+  ctx.fillStyle = '#2a2a30';
+  ctx.font = 'bold 18px Arial';
+  ctx.fillText('MISSIONS', rx, 160);
+  ctx.font = '15px Arial';
+  for (let i = 1; i <= 6; i++) {
+    const done = state.missions.completed.includes(i);
+    ctx.fillStyle = done ? '#2a7a3a' : '#2a2a30';
+    ctx.fillText(`${done ? '✓' : '○'}  Mission ${i}${state.missions.active === i ? '  — ACTIVE' : ''}`, rx, 160 + i * 26);
+  }
+  if (mission) {
+    ctx.fillStyle = '#8a2a3a';
+    ctx.fillText(mission.objective, rx, 160 + 7 * 26);
+  }
+  ctx.fillStyle = '#2a2a30';
+  ctx.font = 'bold 18px Arial';
+  ctx.fillText('LEGEND', rx, 400);
+  ctx.font = '15px Arial';
+  ctx.fillText('■  Landmark      ◆  Objective      ○  You', rx, 428);
+  ctx.fillText(`Postcards ${state.postcardsFound.size}/20   •   Races won ${state.racesWon}/3`, rx, 456);
+  ctx.fillText(`Cash $${state.player.cash.toLocaleString('en-US')}   •   ${state.player.respectTitle}`, rx, 484);
+  // Clock in real HH:MM (hour is a float: 18.6 = 18:36, not "18.6:00").
+  const totalMin = Math.round(state.time.hour * 60);
+  const hh = String(Math.floor(totalMin / 60) % 24).padStart(2, '0');
+  const mm = String(totalMin % 60).padStart(2, '0');
+  ctx.fillText(`Day ${state.time.day}   •   ${hh}:${mm}`, rx, 512);
+}
+
+async function runShot(name) {
+  fitCanvases(1280, 720);
+  const state = createState(seed);
+  let stagingSave = null;
+  if (name === 'cover') {
+    try {
+      const res = await fetch('./staging-save.json');
+      if (res.ok) stagingSave = await res.json();
+    } catch {
+      stagingSave = null;
+    }
+  }
+  const meta = stageShot(name, state, stagingSave);
+  const r = createRenderer(gameCanvas);
+  const hudCtx = hudCanvas.getContext('2d');
+  resizeRenderer(r, 1280, 720);
+  if (name === 'map') {
+    drawMapScreen(hudCtx, state, 1280, 720);
+    const luma = computeLuma(hudCanvas);
+    window.__shotResult = { name, luma, ndcOk: true, missing: [], hour: meta.hour };
+    window.__shotReady = true;
+    return;
+  }
+  renderFrame(r, state, 0);
+  // Settle one idle step so instanced matrices are all fresh, without
+  // moving the staged scene.
+  const project = makeProjector(r, 1280, 720);
+  drawHUD(hudCtx, state, 1280, 720, project);
+  drawRaceHUD(hudCtx, state, 1280, 720);
+  drawArcade(hudCtx, state, 1280, 720);
+  drawMinimap(hudCtx, state, 1280 - 110, 720 - 210, 90);
+  const ndc = checkNDC(project, meta.subjects);
+  // Composite luma: game canvas + HUD overlay, as the screenshot sees it.
+  const comp = document.createElement('canvas');
+  comp.width = 1280;
+  comp.height = 720;
+  const cctx = comp.getContext('2d');
+  cctx.drawImage(gameCanvas, 0, 0);
+  cctx.drawImage(hudCanvas, 0, 0);
+  const luma = computeLuma(comp);
+  if (!ndc.ok) {
+    // Fail-loud: a red screen so a bad frame can never pass silently.
+    cctx.fillStyle = 'rgba(200,20,20,0.85)';
+    cctx.fillRect(0, 0, 1280, 720);
+    cctx.fillStyle = '#ffffff';
+    cctx.font = 'bold 40px Arial';
+    cctx.fillText(`NDC FAIL: ${ndc.missing.join(', ')} out of frame`, 60, 360);
+    hudCtx.fillStyle = 'rgba(200,20,20,0.85)';
+    hudCtx.fillRect(0, 0, 1280, 720);
+  }
+  const stats = renderStats(r);
+  window.__shotResult = {
+    name, luma, ndcOk: ndc.ok, missing: ndc.missing,
+    hour: meta.hour, drawCalls: stats.drawCalls, triangles: stats.triangles,
   };
+  window.__shotReady = true;
+}
 
-  function ensureBeacon(x, y, color) {
-    if (!beacon) {
-      beacon = glowSprite(renderer.glowTex, color || 0xffd27a, 2.5);
-      renderer.scene.add(beacon);
-    }
-    beacon.position.set(x, 4, y);
-    beacon.visible = true;
-    return beacon;
+// ?demo=1 — the gameplay preview: the cover staging (mission 6 escape,
+// Vortex down Marina Boulevard, cruiser alongside, heli overhead)
+// driven live by the same autopilot that plays missions 1–5 for the
+// staging save. Real engine, real renderer, no player input — this is
+// what record-video.mjs records for Sky's preview.
+//
+// Two modes: live (?demo=1) runs on requestAnimationFrame; offline
+// (?demo=1&step=1) exposes window.__stepDemo(dt) instead, so the
+// recorder can render the video frame by frame at full 1280x720
+// quality. SwiftShader (software GL, no GPU on this VM) renders the
+// live scene at ~2–5 fps, which records as a slideshow; the offline
+// stepper renders each frame as slowly as it needs and the video is
+// still a smooth 30 fps.
+async function runDemo() {
+  fitCanvases(1280, 720);
+  const state = createState(seed);
+  let stagingSave = null;
+  try {
+    const res = await fetch('./staging-save.json');
+    if (res.ok) stagingSave = await res.json();
+  } catch {
+    stagingSave = null;
   }
-
-  function spawnPlayerVehicle(vehicleId) {
-    const def = vehicleById(vehicleId);
-    playerVehicle = createVehicleState(vehicleId, world.player.x + Math.sin(world.player.heading) * 2, world.player.y + Math.cos(world.player.heading) * 2, world.player.heading);
-    playerVehicleMesh = buildVehicleMesh(def, materials, { color: def.color });
-    playerVehicleMesh.position.set(playerVehicle.x, 0, playerVehicle.y);
-    playerVehicleMesh.rotation.y = playerVehicle.heading;
-    renderer.scene.add(playerVehicleMesh);
-    playerVehicle.mesh = playerVehicleMesh;
-    world.player.vehicleId = vehicleId;
-    world.player.onFoot = false;
+  stageShot('cover', state, stagingSave);
+  // Demo start: SOUTHBOUND, not the cover's northbound still. The
+  // cover shot is a still of the car flat out north at 98 km/h; driven
+  // live, the autopilot must U-turn at that speed to reach the far
+  // pier (205,110 — south) and it beaches the car in the north-east
+  // corner within ~8 s. Southbound at 54 km/h the same escape drives
+  // cleanly down the boulevard to the pier, police in pursuit, heli
+  // ahead, boat on the sea to the left. Same mission, same police,
+  // same dialog and timer — only the driving line is one the
+  // autopilot can actually follow.
+  const demoCar = state.vehicles.find((x) => x.type === 'vortex');
+  demoCar.heading = 0; // south, down the boulevard toward the pier
+  demoCar.speed = 15; // 54 km/h — fast, but the autopilot can turn it
+  state.player.heading = 0;
+  state.camera.yaw = Math.PI - 0.32; // behind the car, angled to the sea
+  state.police.heli = { x: 196, z: 90, y: 14, angle: 0.6, beam: true };
+  state.boats[0].x = 212;
+  state.boats[0].z = 80;
+  const demoCruiser = state.police.units[0];
+  if (demoCruiser) {
+    demoCruiser.heading = 0;
+    demoCruiser.x = 177;
+    demoCruiser.z = 20; // behind the car, chasing south
   }
-
-  function enterVehicle(car) {
-    const def = car.def || vehicleById('comet');
-    spawnPlayerVehicle(def.id);
-    world.stats.carsStolen += 1;
-    world.wantedHeat += 40;
-    setWanted(world, wantedForHeat(world.wantedHeat));
-    addNotice(world, 'Car stolen — PCPD is looking for you.', 'wanted');
-    return playerVehicle;
-  }
-
-  function exitVehicle() {
-    if (!playerVehicle) return;
-    world.player.x = playerVehicle.x;
-    world.player.y = playerVehicle.y;
-    world.player.heading = playerVehicle.heading;
-    world.player.onFoot = true;
-    world.player.vehicleId = null;
-    if (playerVehicleMesh) {
-      renderer.scene.remove(playerVehicleMesh);
-      playerVehicleMesh = null;
-    }
-    playerVehicle = null;
-  }
-
-  function triggerMission() {
-    const next = MISSIONS.find((m) => !world.missionsDone.includes(m.id));
-    if (!next) return null;
-    const res = startMission(missions, next.id, world);
-    if (res.ok) {
-      world.mission = { id: next.id, stage: 0, progress: 0, active: true, timer: next.timer || 0 };
-      dialogue.enqueueMission(next.id, 0);
-      addNotice(world, 'Job started: ' + next.name, 'mission');
-    }
-    return res;
-  }
-
-  function triggerRace() {
-    const res = startRace(race, world.player);
-    addNotice(world, 'Race started — Neon Mile, 3 laps.', 'race');
-    return res;
-  }
-
-  function syncTrafficMeshes() {
-    const seen = new Set();
-    for (const car of traffic.cars) {
-      seen.add(car.id);
-      if (!vehicleMeshes.has(car.id)) {
-        const mesh = buildVehicleMesh(car.def, materials, { color: car.color, simple: true });
-        renderer.scene.add(mesh);
-        vehicleMeshes.set(car.id, mesh);
-      }
-      const mesh = vehicleMeshes.get(car.id);
-      mesh.position.set(car.x, 0, car.y);
-      mesh.rotation.y = car.heading;
-    }
-    for (const [id, mesh] of vehicleMeshes) {
-      if (!seen.has(id)) {
-        renderer.scene.remove(mesh);
-        vehicleMeshes.delete(id);
-      }
+  const r = createRenderer(gameCanvas);
+  const hudCtx = hudCanvas.getContext('2d');
+  resizeRenderer(r, 1280, 720);
+  let last = performance.now();
+  let accumulator = 0;
+  let frames = 0;
+  // One composite canvas, reused: game + HUD in a single JPEG.
+  const comp = document.createElement('canvas');
+  comp.width = 1280;
+  comp.height = 720;
+  const cctx = comp.getContext('2d');
+  function demoStep(dt) {
+    // Advance the sim by dt in 1/60 s substeps. Shared by the live
+    // loop and the offline stepper, so both show exactly the same game.
+    let remaining = dt;
+    while (remaining > 0) {
+      const s = Math.min(STEP, remaining);
+      stepWorld(state, s, autopilotInput(state));
+      remaining -= s;
     }
   }
+  function demoRender() {
+    renderFrame(r, state, 0);
+    const project = makeProjector(r, 1280, 720);
+    drawHUD(hudCtx, state, 1280, 720, project);
+    drawRaceHUD(hudCtx, state, 1280, 720);
+    drawArcade(hudCtx, state, 1280, 720);
+    drawMinimap(hudCtx, state, 1280 - 110, 720 - 210, 90);
+    frames += 1;
+    window.__demoFrames = frames;
+  }
+  window.__demoReady = true;
+  // Debug hook for QA: the demo's exact state (player, car, camera,
+  // mission) so a bad frame can be diagnosed by numbers, not guesses.
+  window.__demoState = () => {
+    const v = state.vehicles.find((x) => x.id === state.player.vehicleId);
+    const project = makeProjector(r, 1280, 720);
+    const s2 = v ? project(v.x, 1, v.z) : null;
+    return {
+      px: +state.player.x.toFixed(1), pz: +state.player.z.toFixed(1),
+      onFoot: state.player.onFoot, heading: +state.player.heading.toFixed(2),
+      car: v ? { x: +v.x.toFixed(1), z: +v.z.toFixed(1), speed: +v.speed.toFixed(1), damage: Math.round(v.damage) } : null,
+      camYaw: +state.camera.yaw.toFixed(2),
+      camPos: [+r.camera.position.x.toFixed(1), +r.camera.position.y.toFixed(1), +r.camera.position.z.toFixed(1)],
+      carScreen: s2 ? { x: Math.round(s2.x), y: Math.round(s2.y), visible: s2.visible } : null,
+      vehicles: {
+        count: r.vehicleBody.count,
+        culled: r.vehicleBody.frustumCulled,
+        sphere: r.vehicleBody.boundingSphere
+          ? { c: r.vehicleBody.boundingSphere.center.toArray().map((n) => +n.toFixed(1)), r: +r.vehicleBody.boundingSphere.radius.toFixed(1) }
+          : null,
+      },
+      mission: state.missions.active, stage: state.missions.stage,
+      marker: state.missions.marker,
+    };
+  };
+  const offline = new URLSearchParams(location.search).get('step') === '1';
+  if (offline) {
+    // Offline: the recorder drives every frame. Returns the frame as
+    // a JPEG data URL so the recorder never needs a page screenshot.
+    window.__stepDemo = (dt) => {
+      demoStep(dt);
+      demoRender();
+      cctx.drawImage(gameCanvas, 0, 0);
+      cctx.drawImage(hudCanvas, 0, 0);
+      return comp.toDataURL('image/jpeg', 0.85);
+    };
+    return;
+  }
+  function frame(now) {
+    requestAnimationFrame(frame);
+    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    last = now;
+    while (accumulator >= STEP) {
+      demoStep(STEP);
+      accumulator -= STEP;
+    }
+    demoRender();
+  }
+  requestAnimationFrame(frame);
+}
 
-  function syncPedMeshes(dt) {
-    const seen = new Set();
-    for (const ped of [...npcs.peds, ...npcs.vultures]) {
-      seen.add(ped.id);
-      if (!pedMeshes.has(ped.id)) {
-        const mesh = buildPedMesh(ped.look || { skin: 0xe8b890, shirt: 0x2e6fc2, pants: 0x2a3542, hair: 0x2a2018 });
-        renderer.scene.add(mesh);
-        pedMeshes.set(ped.id, mesh);
-      }
-      const mesh = pedMeshes.get(ped.id);
-      mesh.position.set(ped.x, 0, ped.y);
-      mesh.rotation.y = ped.heading;
-      updateWalkCycle(mesh, ped.speed, dt);
+function runGame() {
+  fitCanvases(window.innerWidth, window.innerHeight);
+  const state = createState(seed);
+  const r = createRenderer(gameCanvas);
+  const hudCtx = hudCanvas.getContext('2d');
+  const input = createInput(gameCanvas);
+  resizeRenderer(r, window.innerWidth, window.innerHeight);
+  window.addEventListener('resize', () => {
+    fitCanvases(window.innerWidth, window.innerHeight);
+    resizeRenderer(r, window.innerWidth, window.innerHeight);
+  });
+  let screen = 'title';
+  let pauseTab = 0;
+  let mapOpen = false;
+  let missionsDone = 0;
+  let titleSave = null;
+  try {
+    const raw = window.localStorage.getItem('solmar.save.main');
+    if (raw) titleSave = JSON.parse(raw);
+  } catch { titleSave = null; }
+  let accumulator = 0;
+  let last = performance.now();
+
+  function startGame(fromSave) {
+    if (fromSave && loadFromSlot(state, 'main')) {
+      announce('Continuing your save.');
+    } else {
+      state.time.hour = TIME.startHour;
+      announce('New game. Milo Vane, Solmar City.');
     }
-    for (const [id, mesh] of pedMeshes) {
-      if (!seen.has(id)) {
-        renderer.scene.remove(mesh);
-        pedMeshes.delete(id);
-      }
-    }
+    screen = 'play';
   }
 
-  function nameTagSprite(text) {
-    const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 48;
-    const g = c.getContext('2d');
-    g.fillStyle = 'rgba(12, 14, 18, 0.75)';
-    g.fillRect(0, 0, 256, 48);
-    g.strokeStyle = 'rgba(255, 210, 122, 0.8)';
-    g.lineWidth = 2;
-    g.strokeRect(1, 1, 254, 46);
-    g.fillStyle = '#ffd27a';
-    g.font = 'bold 26px sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(text, 128, 25);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(3.2, 0.6, 1);
-    return sprite;
-  }
-
-  function syncRivalMeshes() {
-    if (!race.active && race.phase !== 'racing' && race.phase !== 'countdown') {
-      for (const [id, mesh] of rivalMeshes) {
-        renderer.scene.remove(mesh);
-        rivalMeshes.delete(id);
+  function handleActions() {
+    const actions = input.takeActions();
+    if (screen === 'title') {
+      if (actions & ACTION_CONFIRM) startGame(!!titleSave);
+      return;
+    }
+    if (screen === 'over') {
+      if (actions & ACTION_CONFIRM) {
+        state.respawn();
+        screen = 'play';
       }
       return;
     }
-    const seen = new Set();
-    for (const r of race.rivals) {
-      seen.add(r.id);
-      if (!rivalMeshes.has(r.id)) {
-        const mesh = buildVehicleMesh(vehicleById(r.vehicleId || 'velora'), materials, { color: r.color || 0x2e6fc2 });
-        renderer.scene.add(mesh);
-        rivalMeshes.set(r.id, mesh);
-        const tag = nameTagSprite(r.name || 'Rival');
-        tag.name = 'tag-' + r.id;
-        renderer.scene.add(tag);
-        rivalMeshes.set('tag-' + r.id, tag);
+    if (actions & ACTION_PAUSE) {
+      if (screen === 'play') {
+        screen = 'paused';
+        announce('Paused.');
+      } else if (screen === 'paused') {
+        screen = 'play';
+        announce('Playing.');
       }
-      const mesh = rivalMeshes.get(r.id);
-      mesh.position.set(r.x || 320, 0, r.y || 130);
-      mesh.rotation.y = r.heading || 0;
-      const tag = rivalMeshes.get('tag-' + r.id);
-      if (tag) tag.position.set(r.x || 320, 2.6, r.y || 130);
+      return;
     }
-    for (const [id, mesh] of rivalMeshes) {
-      if (!seen.has(id) && !seen.has(id.replace('tag-', ''))) {
-        renderer.scene.remove(mesh);
-        rivalMeshes.delete(id);
-      }
+    if (screen === 'paused') return;
+    if (actions & ACTION_MAP) {
+      mapOpen = !mapOpen;
     }
   }
 
-  function syncPoliceMeshes() {
-    const seen = new Set();
-    for (const u of police.units) {
-      seen.add(u.id);
-      if (!copMeshes.has(u.id)) {
-        const mesh = buildVehicleMesh(vehicleById('cruiser'), materials, { color: 0x1a1a2e, police: true });
-        renderer.scene.add(mesh);
-        copMeshes.set(u.id, mesh);
-      }
-      const mesh = copMeshes.get(u.id);
-      mesh.position.set(u.x, 0, u.y);
-      mesh.rotation.y = u.heading;
+  // Clicks: title buttons, pause tabs, story rows (start a mission).
+  hudCanvas.addEventListener('click', (event) => {
+    const rect = hudCanvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * (hudCanvas.width / rect.width);
+    const y = (event.clientY - rect.top) * (hudCanvas.height / rect.height);
+    // The HUD canvas sits over the game canvas: a click in play still
+    // has to lock the pointer for mouse look.
+    if (screen === 'play' && gameCanvas.requestPointerLock) gameCanvas.requestPointerLock();
+    if (screen === 'title') {
+      if (y > 280 && y < 390 && x > hudCanvas.width / 2 - 260 && x < hudCanvas.width / 2 + 260) startGame(true);
+      else if (y > 400 && y < 450) startGame(false);
+      return;
     }
-    for (const [id, mesh] of copMeshes) {
-      if (!seen.has(id)) {
-        renderer.scene.remove(mesh);
-        copMeshes.delete(id);
-      }
-    }
-    if (police.heli && !heliMesh) {
-      heliMesh = buildHeliMesh(materials, true);
-      renderer.scene.add(heliMesh);
-    }
-    if (!police.heli && heliMesh) {
-      renderer.scene.remove(heliMesh);
-      heliMesh = null;
-    }
-    if (heliMesh && police.heli) {
-      updateHeliMesh(heliMesh, police.heli, 0.016);
-    }
-  }
-
-  function hudSnapshot() {
-    const m = missionStatus(missions);
-    const d = districtAt(world.player.x, world.player.y);
-    const radio = (opts.shot || nowPlayingVisible(audio)) ? audio.nowPlaying : null;
-    return {
-      cash: world.cash,
-      wanted: world.wanted,
-      response: responseList(police, world.player),
-      weaponsOwned: world.owned.weapons,
-      activeWeapon: weapon.def.id,
-      activeWeaponName: weapon.def.name,
-      ammo: world.ammo,
-      reserve: { pistol: 48, smg: 120, vk47: 90, shotgun: 24, sniper: 15, revolver: 30, carbine: 96 },
-      mission: m.active ? m : null,
-      race: race.active && race.phase === 'racing' ? raceBoard(race) : null,
-      dialogue: dialogue.current(),
-      districtName: d.name,
-      districtTag: d.tagline,
-      vehicle: playerVehicle ? { name: playerVehicle.def.name, speed: playerVehicle.speed, gear: playerVehicle.gear, condition: playerVehicle.condition } : null,
-      onFoot: world.player.onFoot,
-      radio: radio ? { ...radio, visible: true } : null,
-      hour: world.hour,
-      day: world.day,
-      health: world.player.health,
-      armor: world.player.armor,
-      respect: world.respect,
-      respectName: respectTierFor(world.respect).name,
-      hitMarker: combat.hits.length > 0 ? { show: true, killed: false } : null,
-      chevron: null,
-    };
-  }
-
-  function update(dt) {
-    advanceWorld(world, dt);
-    updateWeather(weather, dt, world.hour);
-    updateMission(missions, world, dt);
-    updatePolice(police, city, world.player, world, dt);
-    updateNpcs(npcs, world.player, dt, city);
-    updateTraffic(traffic, city, world.player, dt);
-    updateCombat(combat, dt);
-    updateWeapon(weapon, dt);
-    if (race.active) {
-      const done = updateRace(race, world.player, dt);
-      if (done && done.won !== undefined) {
-        world.cash += done.payout || 0;
-        if (done.won) world.stats.racesWon += 1;
-        addNotice(world, done.won ? 'Race won! +$' + done.payout : 'Race finished — place ' + done.place, 'race');
-      }
-    }
-    const found = findPostcard(side, world.player);
-    if (found) {
-      world.postcards.push(found.found.id);
-      addNotice(world, 'Postcard found: ' + found.found.name + ' (' + found.total + '/20)', 'info');
-    }
-    if (input.wasPressed('nextStation')) nextStation(audio);
-    if (input.wasPressed('prevStation')) prevStation(audio);
-    if (input.wasPressed('wheel')) {
-      const idx = world.owned.weapons.indexOf(weapon.def.id);
-      const nextId = world.owned.weapons[(idx + 1) % world.owned.weapons.length];
-      weapon = createWeaponState(nextId, world.ammo[nextId] || 0, 90);
-    }
-    if (input.wasPressed('reload')) startReload(weapon);
-    if (input.wasPressed('shoot') && world.player.onFoot) {
-      const shot = fireWeapon(weapon, { distance: 12 });
-      if (shot) {
-        playGunshot(audio);
-        world.stats.shotsFired += 1;
-        const target = npcs.vultures[0];
-        if (target) {
-          const res = fireAt(combat, world.player, target, weapon);
-          if (res.hit) {
-            world.stats.shotsHit += 1;
-            if (res.killed) {
-              world.stats.kills += 1;
-              world.wantedHeat += 50;
-              setWanted(world, wantedForHeat(world.wantedHeat));
-            }
-          }
-        }
-      }
-    }
-    if (input.wasPressed('interact')) {
-      const interior = interiorAt(world.player.x, world.player.y);
-      if (interior) {
-        enterInterior(world, interior);
-        addNotice(world, 'Entered ' + interior.name, 'info');
-      } else if (!playerVehicle && traffic.cars.length > 0) {
-        const near = traffic.cars.reduce((best, c) => {
-          const d = Math.hypot(c.x - world.player.x, c.y - world.player.y);
-          return !best || d < best.d ? { car: c, d } : best;
-        }, null);
-        if (near && near.d < 4) enterVehicle(near.car);
-      }
-    }
-    if (input.wasPressed('map')) {
-      screen = SCREEN_PAUSED;
-      showPause(hud, 'map', pauseMapHTML({ ...world, respectName: respectTierFor(world.respect).name }, MISSIONS));
-      const mapCanvas = document.getElementById('pause-map-canvas');
-      if (mapCanvas) drawCityMap(mapCanvas, { city, player: world.player });
-    }
-    if (input.wasPressed('pause')) {
-      if (screen === SCREEN_PLAY) {
-        screen = SCREEN_PAUSED;
-        showPause(hud, 'stats', pauseStatsHTML(world.stats, computeComplete(world)));
-      } else if (screen === SCREEN_PAUSED) {
-        screen = SCREEN_PLAY;
-        hidePause(hud);
-      }
-    }
-    if (input.wasPressed('topdown')) topdown = !topdown;
-    if (world.player.onFoot) {
-      const speed = input.isDown('run') ? 5.2 : 3.2;
-      const ax = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
-      const ay = (input.isDown('down') ? 1 : 0) - (input.isDown('up') ? 1 : 0);
-      if (ax !== 0 || ay !== 0) {
-        const len = Math.hypot(ax, ay) || 1;
-        world.player.x += (ax / len) * speed * dt;
-        world.player.y += (ay / len) * speed * dt;
-        world.player.heading = Math.atan2(ax, ay);
-        world.player.speed = speed;
-      } else {
-        world.player.speed = 0;
-      }
-      playerMesh.position.set(world.player.x, 0, world.player.y);
-      playerMesh.rotation.y = world.player.heading;
-      updateWalkCycle(playerMesh, world.player.speed, dt);
-      playerMesh.visible = true;
-      if (playerVehicleMesh) playerVehicleMesh.visible = false;
-    } else if (playerVehicle) {
-      const vinput = {
-        up: input.isDown('up'),
-        down: input.isDown('down'),
-        left: input.isDown('left'),
-        right: input.isDown('right'),
-        handbrake: input.isDown('jump'),
-      };
-      updateVehicle(playerVehicle, vinput, dt);
-      world.player.x = playerVehicle.x;
-      world.player.y = playerVehicle.y;
-      world.player.heading = playerVehicle.heading;
-      world.player.speed = playerVehicle.speed;
-      world.stats.distanceDriven += Math.abs(playerVehicle.speed) * dt;
-      updateVehicleMesh(playerVehicle, dt);
-      playerMesh.visible = false;
-      if (input.wasPressed('interact')) exitVehicle();
-    }
-    present(dt);
-  }
-
-  function present(dt) {
-    const clear = keepClearPosition(city, world.player.x, world.player.y, buildingAt, 4);
-    if (clear.steps > 0) {
-      world.player.x = clear.x;
-      world.player.y = clear.y;
-    }
-    if (topdown) {
-      renderer.camera.position.set(world.player.x, 120, world.player.y + 0.1);
-      renderer.camera.lookAt(world.player.x, 0, world.player.y);
-    } else if (world.player.onFoot) {
-      updateChaseCamera(renderer.camera, { x: world.player.x, y: world.player.y, heading: world.player.heading }, { boom: 8, height: 4, fov: 66, dt, clearFn: (x, y) => buildingAt(city, x, y, 2) != null });
-    } else {
-      updateChaseCamera(renderer.camera, { x: world.player.x, y: world.player.y, heading: world.player.heading }, { boom: shotCam ? shotCam.boom : 14, height: shotCam ? shotCam.height : 6, fov: 68, dt, lookHeight: shotCam ? shotCam.lookHeight : undefined, clearFn: (x, y) => buildingAt(city, x, y, 2) != null });
-    }
-    const lightSources = [];
-    for (const u of police.units) lightSources.push({ x: u.x, y: u.y, color: 0x4da6ff, intensity: 1.6, distance: 40 });
-    if (police.heli) lightSources.push({ x: police.heli.x, y: police.heli.y, color: 0xfff2c0, intensity: 2, distance: 60 });
-    renderer.updateLights(lightSources);
-    if (world.player.onFoot) {
-      playerMesh.position.set(world.player.x, 0, world.player.y);
-      playerMesh.rotation.y = world.player.heading;
-      playerMesh.visible = true;
-      if (playerVehicleMesh) playerVehicleMesh.visible = false;
-    } else if (playerVehicleMesh) {
-      playerMesh.visible = false;
-      playerVehicleMesh.visible = true;
-    }
-    setEngineSound(audio, playerVehicle ? playerVehicle.speed : 0, playerVehicle ? playerVehicle.def.topSpeed : 1);
-    playSiren(audio, world.wanted > 0);
-    scheduleStep(audio);
-    syncTrafficMeshes();
-    syncPedMeshes(dt);
-    syncPoliceMeshes();
-    syncRivalMeshes();
-    updateHUD(hud, hudSnapshot());
-    drawMinimap(hud.radar, {
-      x: world.player.x,
-      y: world.player.y,
-      heading: world.player.heading,
-      health: world.player.health,
-      armor: world.player.armor,
-      respect: world.respect,
-      city,
-      searchZone: police.searchZone,
-      police: police.units,
-      vultures: npcs.vultures,
-      missionBlip: world.mission && world.mission.active ? { x: 320, y: 130 } : null,
+    if (screen !== 'paused') return;
+    const tabs = ['MAP', 'STATS', 'STORY', 'SETTINGS'];
+    tabs.forEach((t, i) => {
+      const tx = hudCanvas.width / 2 - 180 + i * 120;
+      if (Math.abs(x - tx) < 55 && y > 70 && y < 100) pauseTab = i;
     });
-    if (race.active && race.phase === 'racing') {
-      const cp = nextCheckpoint(race);
-      ensureBeacon(cp.x, cp.y, 0x2ee85c);
-    } else if (world.mission && world.mission.active) {
-      ensureBeacon(320, 130, 0xffd27a);
-    } else if (beacon) {
-      beacon.visible = false;
-    }
-  }
-
-  function loop(t) {
-    const dt = Math.min(0.05, (t - lastTime) / 1000 || 0.016);
-    lastTime = t;
-    if (screen === SCREEN_PLAY) {
-      if (opts.shot) {
-        present(0);
-      } else {
-        update(dt);
-      }
-      renderer.renderFrame(world, dt);
-      frameCount += 1;
-      if (frameCount > 5) shotReady = true;
-    } else if (screen === SCREEN_TITLE) {
-      world.hour = 18.6;
-      renderer.camera.position.set(320, 55, 420);
-      renderer.camera.lookAt(320, 0, 240);
-      renderer.renderFrame(world, dt);
-      frameCount += 1;
-      if (frameCount > 5) shotReady = true;
-    } else if (screen === SCREEN_PAUSED) {
-      if (input.wasPressed('pause')) {
-        screen = SCREEN_PLAY;
-        hidePause(hud);
-      }
-      renderer.renderFrame(world, dt);
-      frameCount += 1;
-      if (frameCount > 5) shotReady = true;
-    }
-    input.beginFrame();
-    if (game._running) requestAnimationFrame(loop);
-  }
-
-  function stageForShot(query) {
-    const staged = stageShot(query, seed);
-    world.hour = staged.def.hour;
-    world.player.x = staged.player.x;
-    world.player.y = staged.player.y;
-    world.player.heading = staged.player.heading;
-    world.player.speed = staged.player.speed;
-    world.player.onFoot = query === 'onfoot';
-    world.wanted = staged.world.wanted;
-    world.wantedHeat = staged.world.wantedHeat;
-    world.cash = staged.world.cash;
-    world.respect = staged.world.respect;
-    if (query === 'map') {
-      world.hour = 12.0;
-      world.player.x = 320;
-      world.player.y = 240;
-      screen = SCREEN_PAUSED;
-      game.screen = screen;
-      showPause(hud, 'map', pauseMapHTML({ ...world, respectName: respectTierFor(world.respect).name }, MISSIONS));
-      const mapCanvas = document.getElementById('pause-map-canvas');
-      if (mapCanvas) drawCityMap(mapCanvas, { city, player: world.player });
-      shotReady = true;
-      return staged;
-    } else if (query === 'onfoot') {
-      // Posed ON Gold Street (320,240) heading north — see stageOnFoot
-      // in shots.js: the old block-interior pose (300,240) hid the
-      // right-hand Vulture behind a facade. Keep in sync with shots.js.
-      world.player.x = 320;
-      world.player.y = 240;
-      world.player.heading = 0;
-      for (const v of staged.vultures) {
-        npcs.vultures.push(v);
-        const marker = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.5),
-          new THREE.MeshBasicMaterial({ color: 0xff2e2e }),
-        );
-        marker.position.set(v.x, 2.8, v.y);
-        renderer.scene.add(marker);
-        const glow = glowSprite(renderer.glowTex, 0xff2e2e, 1.6);
-        glow.position.set(v.x, 0.8, v.y);
-        renderer.scene.add(glow);
-      }
-      startMission(missions, 'vulture-trouble', world);
-      missions.progress = 2;
-      missions.progressTotal = 6;
-      world.mission = { id: 'vulture-trouble', stage: 0, progress: 2, active: true, timer: 0 };
-      dialogue.enqueueMission('vulture-trouble', 0);
-      weapon = createWeaponState('vk47', 30, 90);
-      const fx = Math.sin(world.player.heading);
-      const fy = Math.cos(world.player.heading);
-      const flash = glowSprite(renderer.glowTex, 0xfff2c0, 2.0);
-      flash.position.set(world.player.x + fx * 1.4, 1.3, world.player.y + fy * 1.4);
-      renderer.scene.add(flash);
-      const flashLight = new THREE.PointLight(0xfff2c0, 5, 30, 1.5);
-      flashLight.position.set(world.player.x + fx * 1.4, 2, world.player.y + fy * 1.4);
-      renderer.scene.add(flashLight);
-      const streetLight = new THREE.PointLight(0xffd27a, 2.5, 40, 1.5);
-      streetLight.position.set(world.player.x, 6, world.player.y);
-      renderer.scene.add(streetLight);
-    } else if (query === 'race') {
-      shotCam = { boom: 11, height: 4.5 };
-      startRace(race, world.player);
-      race.countdown = 0;
-      race.phase = 'racing';
-      race.elapsed = staged.race.elapsed;
-      race.lap = staged.race.lap;
-      race.checkpoint = staged.race.checkpoint;
-      race.playerPlace = staged.race.playerPlace;
-      race.gapToLeader = staged.race.gapToLeader;
-      race.standings = staged.race.standings.map((s) => ({ ...s }));
-      race.rivals = staged.race.rivals.map((r) => ({ ...r }));
-      spawnPlayerVehicle('comet');
-      if (playerVehicle) {
-        playerVehicle.speed = 8;
-        playerVehicle.gear = 1;
-        world.player.x = playerVehicle.x;
-        world.player.y = playerVehicle.y;
-        world.player.heading = playerVehicle.heading;
-        world.player.speed = 8;
-      }
-      world.mission = null;
-    } else {
-      shotCam = { boom: 10, height: 2.8, lookHeight: 2.4 };
-      police.units = staged.police.units;
-      police.heli = staged.police.heli;
-      police.nextId = 20;
-      for (const c of staged.traffic.cars) traffic.cars.push(c);
-      for (const p of staged.npcs.peds) npcs.peds.push(p);
-      spawnPlayerVehicle('comet');
-      if (playerVehicle) {
-        playerVehicle.speed = 27;
-        playerVehicle.gear = 2;
-        world.player.x = playerVehicle.x;
-        world.player.y = playerVehicle.y;
-        world.player.heading = playerVehicle.heading;
-      }
-      startMission(missions, 'king-of-solmar', world);
-      missions.stage = 2;
-      missions.timer = 127;
-      world.mission = { id: 'king-of-solmar', stage: 2, progress: 0, active: true, timer: 127 };
-      dialogue.enqueueMission('king-of-solmar', 2);
-    }
-    showNowPlaying(audio);
-    const titleEl = document.getElementById('title-screen');
-    if (titleEl) titleEl.classList.add('hidden');
-    screen = SCREEN_PLAY;
-    game.screen = screen;
-    return staged;
-  }
-
-  function start() {
-    game._running = true;
-    if (opts.shot) {
-      stageForShot(opts.shot);
-      requestAnimationFrame(loop);
-      return game;
-    }
-    if (staging) {
-      const m = missionById('king-of-solmar');
-      if (m) {
-        startMission(missions, 'king-of-solmar', world);
-        missions.stage = 2;
-        missions.timer = 127;
-        world.mission = { id: 'king-of-solmar', stage: 2, progress: 0, active: true, timer: 127 };
-      }
-      spawnPlayerVehicle('comet');
-      showNowPlaying(audio);
-    }
-    const titleEl = document.getElementById('title-screen');
-    if (titleEl) {
-      titleEl.classList.remove('hidden');
-      const portraitsEl = titleEl.querySelector('#title-cast');
-      if (portraitsEl) {
-        portraitsEl.innerHTML = '';
-        for (const c of castRow()) {
-          const cv = document.createElement('canvas');
-          cv.width = 128;
-          cv.height = 128;
-          drawPortrait(cv, c.id);
-          const wrap = document.createElement('div');
-          wrap.className = 'cast-card';
-          wrap.appendChild(cv);
-          const label = document.createElement('div');
-          label.className = 'cast-name';
-          label.textContent = c.name + ' — ' + c.role;
-          wrap.appendChild(label);
-          portraitsEl.appendChild(wrap);
+    if (pauseTab === 2) {
+      for (let i = 1; i <= 6; i++) {
+        const ry = 190 + i * 28;
+        if (y > ry - 14 && y < ry + 10 && x > hudCanvas.width / 2 - 300 && x < hudCanvas.width / 2 + 100) {
+          if (!state.missions.completed.includes(i) && state.missions.active === null) {
+            state.startMission(i);
+            screen = 'play';
+          }
         }
       }
-      const continueBtn = titleEl.querySelector('#btn-continue');
-      const newBtn = titleEl.querySelector('#btn-new');
-      const has = hasSave() || !!staging;
-      if (continueBtn) {
-        continueBtn.style.display = has ? '' : 'none';
-        continueBtn.onclick = () => {
-          ensureAudio(audio);
-          if (!staging) {
-            const saved = loadGame();
-            if (saved) Object.assign(world, saved);
-          }
-          showNowPlaying(audio);
-          titleEl.classList.add('hidden');
-          screen = SCREEN_PLAY;
-          game.screen = screen;
-        };
+    }
+  });
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    last = now;
+    handleActions();
+    const W = hudCanvas.width;
+    const H = hudCanvas.height;
+    if (screen === 'title') {
+      // Attract mode: the city turns slowly behind the logo.
+      state.camera.yaw += 0.0004;
+      state.camera.pitch = 0.25;
+      state.player.x = 0;
+      state.player.z = 0;
+      while (accumulator >= STEP) {
+        stepWorld(state, STEP, idleInput());
+        accumulator -= STEP;
       }
-      if (newBtn) {
-        newBtn.onclick = () => {
-          ensureAudio(audio);
-          showNowPlaying(audio);
-          titleEl.classList.add('hidden');
-          screen = SCREEN_PLAY;
-          game.screen = screen;
-        };
+      renderFrame(r, state, 0);
+      drawTitle(hudCtx, state, W, H, titleSave);
+      return;
+    }
+    if (screen === 'play') {
+      while (accumulator >= STEP) {
+        stepWorld(state, STEP, input);
+        accumulator -= STEP;
+        if (state.player.dead) {
+          screen = 'over';
+          break;
+        }
+      }
+      if (state.missions.completed.length > missionsDone) {
+        missionsDone = state.missions.completed.length;
+        saveToSlot(state, 'main');
       }
     } else {
-      screen = SCREEN_PLAY;
-      game.screen = screen;
+      accumulator = 0;
     }
-    requestAnimationFrame(loop);
-    return game;
+    if (screen === 'over') {
+      renderFrame(r, state, 0);
+      drawGameOver(hudCtx, state, W, H);
+      return;
+    }
+    renderFrame(r, state, 0);
+    const project = makeProjector(r, W, H);
+    if (screen === 'paused') {
+      if (pauseTab === 0) {
+        drawMapScreen(hudCtx, state, W, H);
+        // Tab bar stays on top of the map so the player can leave it.
+        hudCtx.textAlign = 'center';
+        ['MAP', 'STATS', 'STORY', 'SETTINGS'].forEach((t, i) => {
+          hudCtx.fillStyle = i === 0 ? '#ffd34a' : '#2a2a30';
+          hudCtx.font = 'bold 18px Arial';
+          hudCtx.fillText(t, W / 2 - 180 + i * 120, 40);
+        });
+        hudCtx.textAlign = 'left';
+      } else {
+        drawPause(hudCtx, state, W, H, pauseTab);
+      }
+      return;
+    }
+    if (mapOpen) {
+      drawMapScreen(hudCtx, state, W, H);
+      return;
+    }
+    drawHUD(hudCtx, state, W, H, project);
+    drawRaceHUD(hudCtx, state, W, H);
+    drawArcade(hudCtx, state, W, H);
+    drawMinimap(hudCtx, state, W - 110, H - 210, 90);
+    const prompt = contextPrompt(state);
+    if (prompt) {
+      hudCtx.fillStyle = 'rgba(16,14,24,0.82)';
+      hudCtx.font = '13px Arial';
+      const pw = hudCtx.measureText(prompt).width + 24;
+      hudCtx.fillRect(W / 2 - pw / 2, H - 70, pw, 24);
+      hudCtx.fillStyle = '#f2ead8';
+      hudCtx.fillText(prompt, W / 2 - pw / 2 + 12, H - 53);
+    }
   }
 
-  function stop() {
-    game._running = false;
-    input.detach();
-    saveGame(world);
-    saveStats(world.stats);
-  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && screen === 'play') {
+      screen = 'paused';
+      announce('Paused.');
+    }
+  });
 
-  window.__solmar = game;
-  return game;
+  announce('SOLMAR 3D. Press Space or click to start.');
+  requestAnimationFrame(frame);
 }
 
-export function bootGame(canvasId, hudRootId, opts) {
-  const canvas = document.getElementById(canvasId);
-  const hudRoot = document.getElementById(hudRootId);
-  const game = createGame(canvas, hudRoot, opts);
-  return game.start();
+if (shotName) {
+  runShot(shotName).catch((err) => {
+    window.__shotResult = { name: shotName, error: String(err) };
+    window.__shotReady = true;
+  });
+} else if (demoParam) {
+  runDemo().catch((err) => {
+    window.__demoError = String(err);
+    window.__demoReady = true;
+  });
+} else {
+  runGame();
 }

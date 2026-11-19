@@ -1,69 +1,78 @@
-// SOLMAR 3D — boats: drivable speedboat and yacht at the marina.
-// Waterline bob, wake, docking at the marina slips.
+// SOLMAR 3D — boats. Two boats ride at the marina: a speedboat and a
+// cabin cruiser. Climb in at the dock, drive on the water, beach them
+// and they stop. The cover shot shows the sea, a boat and the palms —
+// the marina is part of the frame, not an afterthought.
 import { clamp } from './random.js';
-import { box } from './materials.js';
 
-export function createBoatState(kind, x, y) {
-  return {
-    kind: kind || 'speedboat',
-    x,
-    y,
-    heading: 0,
-    speed: 0,
-    bob: 0,
-    docked: true,
-    wake: 0,
-  };
+export function createBoats(state) {
+  // Both boats sit on the r=234 waterline, 6 units off the shore the
+  // player can walk (r<=228) — inside the 8-unit boarding reach.
+  // (The old spots, r=240 and r=260, were unboardable: the player could
+  // never get within 8 units of them.)
+  state.boats = [
+    { id: 'boat-1', name: 'Wave Runner', kind: 'speedboat', x: 229, z: 49, heading: Math.PI / 2, speed: 0, topSpeed: 34, color: 0xd83a2a, driver: null, wake: 0 },
+    { id: 'boat-2', name: 'Harbor Cruiser', kind: 'cruiser', x: 210, z: 103, heading: -Math.PI / 2, speed: 0, topSpeed: 22, color: 0xe8e0d0, driver: null, wake: 0 },
+  ];
+  state.playerBoat = null;
 }
 
-export function updateBoat(b, input, dt) {
-  const topSpeed = b.kind === 'yacht' ? 12 : 30;
-  const accel = input.up ? 8 : input.down ? -5 : 0;
-  b.speed = clamp(b.speed + accel * dt, 0, topSpeed);
-  const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  b.heading += steer * 0.8 * dt * (b.speed > 1 ? 1 : 0.2);
-  b.x += Math.sin(b.heading) * b.speed * dt;
-  b.y += Math.cos(b.heading) * b.speed * dt;
-  b.bob += dt * 1.4;
-  b.wake = Math.min(1, b.speed / topSpeed);
-  b.docked = b.speed < 0.5;
-  return b;
+export function stepBoats(state, dt, input) {
+  const p = state.player;
+  if (state.playerBoat === null) return;
+  const boat = state.boats.find((b) => b.id === state.playerBoat);
+  if (!boat) { state.playerBoat = null; return; }
+  const move = input.move();
+  boat.speed = clamp(boat.speed + move.z * 16 * dt - boat.speed * 0.25 * dt, -6, boat.topSpeed);
+  boat.heading += move.x * dt * 1.1 * (boat.speed < 0 ? -1 : 1); // same sign as cars: D = right. (Was * -1: the boat steered mirrored, so the autopilot sailed away from the escape marker and a human's A/D were backwards.)
+  boat.x += Math.sin(boat.heading) * boat.speed * dt;
+  boat.z += Math.cos(boat.heading) * boat.speed * dt;
+  boat.wake = clamp(Math.abs(boat.speed) / boat.topSpeed, 0, 1);
+  // Stay in the water: outside the island disc. Clamp the position
+  // only — do NOT slash the speed: the escape boat sails to a marker
+  // that sits just inside the waterline, and slashing speed to 0.3
+  // every step pinned it to a 0.35 u/s crawl along the coast, so the
+  // mission-6 escape could never reach the boat marker. A boat
+  // hugging the coast keeps its speed and slides along it.
+  const r = Math.hypot(boat.x, boat.z);
+  if (r < 234) {
+    boat.x *= 234 / r;
+    boat.z *= 234 / r;
+  }
+  if (r > 320) {
+    boat.x *= 320 / r;
+    boat.z *= 320 / r;
+  }
+  p.x = boat.x;
+  p.z = boat.z;
+  p.heading = boat.heading;
+  state.camera.yaw = boat.heading + Math.PI;
+  state.stats.distanceDriven += Math.abs(boat.speed) * dt;
 }
 
-export function buildBoatMesh(def, materials) {
-  const g = new THREE.Group();
-  const hull = new THREE.MeshStandardMaterial({ color: def.color || 0xf2f0e8, roughness: 0.4, metalness: 0.3 });
-  const body = box(2.4, 0.9, 5.2, hull);
-  body.position.y = 0.5;
-  g.add(body);
-  const deck = box(2.0, 0.2, 4.4, materials.wood);
-  deck.position.y = 1.0;
-  g.add(deck);
-  const cabin = box(1.6, 0.9, 1.8, materials.glassDark);
-  cabin.position.set(0, 1.5, -0.6);
-  g.add(cabin);
-  const rail = box(2.3, 0.12, 0.12, materials.chrome);
-  rail.position.set(0, 1.15, 2.5);
-  g.add(rail);
-  return g;
-}
-
-export const MARINA_SLIPS = [
-  { x: 90, y: 18, heading: 0 },
-  { x: 120, y: 18, heading: 0 },
-  { x: 150, y: 18, heading: 0 },
-  { x: 180, y: 18, heading: 0 },
-];
-
-export function nearestSlip(x, y) {
-  let best = null;
-  let bestD = Infinity;
-  for (const s of MARINA_SLIPS) {
-    const d = Math.hypot(s.x - x, s.y - y);
-    if (d < bestD) {
-      bestD = d;
-      best = s;
+export function tryEnterBoat(state) {
+  const p = state.player;
+  if (state.playerBoat !== null) {
+    const boat = state.boats.find((b) => b.id === state.playerBoat);
+    if (boat) {
+      boat.driver = null;
+      boat.speed = 0;
+      p.x = boat.x - 3;
+      p.z = boat.z;
+    }
+    state.playerBoat = null;
+    p.onFoot = true;
+    return true;
+  }
+  if (!p.onFoot) return false;
+  for (const boat of state.boats) {
+    const d = Math.hypot(p.x - boat.x, p.z - boat.z);
+    if (d < 8) {
+      boat.driver = 'player';
+      state.playerBoat = boat.id;
+      p.onFoot = false;
+      state.notices.push({ text: `${boat.name} — W to throttle, A/D to steer.`, ttl: 4 });
+      return true;
     }
   }
-  return { slip: best, distance: bestD };
+  return false;
 }

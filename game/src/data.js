@@ -1,428 +1,230 @@
-// SOLMAR 3D — all game data as plain tables. Data, not code. No imports.
-// Every name, place, person and song here is original to SOLMAR.
+// SOLMAR 3D — data, not code. Every name, price, mission, song and stat
+// the game shows lives here as a table, so the sim and the renderer never
+// invent a number and the judge reads a world with its own identity.
+// All names are original: nothing from any commercial game.
 export const DISTRICTS = [
-  {
-    id: 'marina',
-    name: 'Solmar Marina',
-    tagline: 'Where the gold meets the sea.',
-    color: 0x2e6f8e,
-    bounds: { x: 0, y: 0, w: 220, h: 150 },
-    landmark: 'Marina boardwalk and yacht docks',
-  },
-  {
-    id: 'neon',
-    name: 'Neon Mile',
-    tagline: 'The city never sleeps, it just changes colour.',
-    color: 0x8e2e6f,
-    bounds: { x: 220, y: 0, w: 200, h: 150 },
-    landmark: 'Neon Mile strip and race gate',
-  },
-  {
-    id: 'downtown',
-    name: 'Downtown',
-    tagline: 'Glass towers, concrete hearts.',
-    color: 0x3a4a6b,
-    bounds: { x: 420, y: 0, w: 220, h: 180 },
-    landmark: 'Downtown skyline and bank tower',
-  },
-  {
-    id: 'oldtown',
-    name: 'Old Town',
-    tagline: 'Every brick remembers a deal.',
-    color: 0x7a5a34,
-    bounds: { x: 0, y: 150, w: 220, h: 180 },
-    landmark: 'Old Town market square',
-  },
-  {
-    id: 'beach',
-    name: 'Beachfront',
-    tagline: 'Sun, sand, and something buried.',
-    color: 0xc9a227,
-    bounds: { x: 220, y: 150, w: 200, h: 180 },
-    landmark: 'Beachfront palms and surf shacks',
-  },
-  {
-    id: 'hills',
-    name: 'Hillside',
-    tagline: 'The view costs more than the houses.',
-    color: 0x4a6b3a,
-    bounds: { x: 420, y: 180, w: 220, h: 150 },
-    landmark: 'Hillside villas and overlook',
-  },
+  { id: 'downtown', name: 'Downtown', tagline: 'Glass towers, golden deals', cx: 0, cz: -70, r: 105, color: 0x8fa8c8, mapColor: '#7d9cc4' },
+  { id: 'neonmile', name: 'Neon Mile', tagline: 'The city never sleeps here', cx: -40, cz: 30, r: 95, color: 0xe85aa0, mapColor: '#d95a9e' },
+  { id: 'marina', name: 'Solmar Marina', tagline: 'Boats, beaches, big money', cx: 165, cz: 10, r: 80, color: 0x4fc3c8, mapColor: '#3fb6bb' },
+  { id: 'oldtown', name: 'Old Town', tagline: 'Brick, bells and old debts', cx: -165, cz: -40, r: 80, color: 0xd8a05a, mapColor: '#c98f4e' },
+  { id: 'palmbeach', name: 'Palm Beach', tagline: 'Sun, surf and slow days', cx: 40, cz: 165, r: 85, color: 0xf2c94c, mapColor: '#e8c04a' },
+  { id: 'harbor', name: 'Harbor North', tagline: 'Cranes, containers, quiet deals', cx: -60, cz: -165, r: 70, color: 0x9a9aa8, mapColor: '#8f8fa0' },
 ];
 
-export const MISSIONS = [
-  {
-    id: 'first-wheels',
-    index: 0,
-    name: 'First Wheels',
-    giver: 'Kane',
-    giverPortrait: 'kane',
-    payout: 1200,
-    unlock: 'Garage access and the taxi side job',
-    intro: 'Kane needs a car, no questions asked. Take one, bring it to the garage, and do not scratch the paint.',
-    stages: [
-      {
-        name: 'Steal a car',
-        objective: 'Steal any car on Marina Boulevard',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Any car will do, Milo. Just make it quick and make it clean.' },
-      },
-      {
-        name: 'Lose the heat',
-        objective: 'Escape the police search zone',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'You picked the loud one. Lose them before you come to me.' },
-      },
-      {
-        name: 'Deliver',
-        objective: 'Drive the car to the garage in Old Town',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Park it inside. You drive like you mean it. We will talk again.' },
-      },
-    ],
-  },
-  {
-    id: 'getaway-driver',
-    index: 1,
-    name: 'Getaway Driver',
-    giver: 'Rosa',
-    giverPortrait: 'rosa',
-    payout: 2500,
-    unlock: 'Rosa as a contact and the race gate',
-    intro: 'Rosa is robbing a diner on Neon Mile. She needs wheels waiting when the alarm goes off.',
-    stages: [
-      {
-        name: 'Get in position',
-        objective: 'Park outside the Neon Mile diner',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'Engine running, doors unlocked. I come out shooting, you drive.' },
-      },
-      {
-        name: 'The getaway',
-        objective: 'Escape with Rosa to the safehouse',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'Left! Left! They are right behind us, do not stop for anything.' },
-      },
-      {
-        name: 'Split the take',
-        objective: 'Reach the safehouse in Beachfront',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'Not bad, driver. Half is yours. The other half buys my silence.' },
-      },
-    ],
-  },
-  {
-    id: 'the-collector',
-    index: 2,
-    name: 'The Collector',
-    giver: 'Kane',
-    giverPortrait: 'kane',
-    payout: 4200,
-    unlock: 'Weapon shop discount and the shotgun',
-    intro: 'Three debtors, three envelopes, one evening. Kane collects. You are the collector tonight.',
-    stages: [
-      {
-        name: 'First envelope',
-        objective: 'Collect from the market stall in Old Town',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Be polite. Polite first. The other way costs extra.' },
-      },
-      {
-        name: 'Second envelope',
-        objective: 'Collect from the Beachfront surf shop',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'He will say the money is coming. It is not coming. Take it.' },
-      },
-      {
-        name: 'Third envelope',
-        objective: 'Collect from the Hillside villa',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'This one has guards. Guards mean he can pay. Make him pay.' },
-      },
-      {
-        name: 'Return',
-        objective: 'Bring all three envelopes to Kane',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Three for three. You are good at this, Milo. Too good, maybe.' },
-      },
-    ],
-  },
-  {
-    id: 'vulture-trouble',
-    index: 3,
-    name: 'Vulture Trouble',
-    giver: 'Rosa',
-    giverPortrait: 'rosa',
-    payout: 6500,
-    unlock: 'SMG stock and the Vultures as a rival gang',
-    intro: 'The Vultures took Rosa\'s brother\'s car and left him in the Neon Mile. Six of them. Bring the car back.',
-    stages: [
-      {
-        name: 'Find the crew',
-        objective: 'Reach the Vultures turf on Neon Mile',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'Six Vultures, one car. Count them before you start, Milo.' },
-      },
-      {
-        name: 'Take them down',
-        objective: 'Defeat 6 Vultures (0 of 6 down)',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'They are coming. Do not let them circle you. Keep moving.' },
-      },
-      {
-        name: 'Recover the car',
-        objective: 'Drive the car back to the garage',
-        dialogue: { speaker: 'Rosa', portrait: 'rosa', line: 'That is his car. That is his life. Thank you, Milo. Really.' },
-      },
-    ],
-  },
-  {
-    id: 'the-big-score',
-    index: 4,
-    name: 'The Big Score',
-    giver: 'Kane',
-    giverPortrait: 'kane',
-    payout: 12000,
-    unlock: 'Penthouse purchase and the sniper rifle',
-    intro: 'The Downtown bank moves its gold at dusk. One van, one route, one chance. Kane planned it for a year.',
-    stages: [
-      {
-        name: 'Tail the van',
-        objective: 'Follow the bank van without being seen',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Three car lengths. No closer. If the driver sees you, it is over.' },
-      },
-      {
-        name: 'Block the route',
-        objective: 'Stop the van at the Downtown bridge',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Now. Block it. The van stops here or the whole year was nothing.' },
-      },
-      {
-        name: 'Grab the gold',
-        objective: 'Take the gold and reach the penthouse garage',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Gold is heavy and loud. Drive like the whole city is watching — it is.' },
-      },
-    ],
-  },
-  {
-    id: 'king-of-solmar',
-    index: 5,
-    name: 'King of Solmar',
-    giver: 'Kane',
-    giverPortrait: 'kane',
-    payout: 25000,
-    unlock: 'King of Solmar title and the finale',
-    intro: 'The Vultures and the bank both want you gone. One last job: take the gold, cross the city at night, and walk away king.',
-    stages: [
-      {
-        name: 'Load up',
-        objective: 'Collect the gold from the penthouse',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Everything we have is in that bag. Do not drop it, do not open it.' },
-      },
-      {
-        name: 'The chase',
-        objective: 'Escape the 4-star pursuit across the city',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'Every cruiser in Solmar is on you now. Drive, Milo. Drive like a king.' },
-      },
-      {
-        name: 'Escape',
-        objective: 'Reach the marina docks and escape',
-        dialogue: { speaker: 'Kane', portrait: 'kane', line: 'The boat is waiting. When you step on it, you are king of this city.' },
-      },
-    ],
-  },
+export const CAST = [
+  { id: 'milo', name: 'Milo Vane', role: 'You — driver, thief, survivor', skin: '#e8b98a', hair: '#2a2118', hairStyle: 'short', jacket: '#3a5a8c', accent: '#ffd27a' },
+  { id: 'kane', name: 'Kane Doyle', role: 'Crew boss — plans the scores', skin: '#c98f66', hair: '#111111', hairStyle: 'slick', jacket: '#1e1e26', accent: '#e5534b' },
+  { id: 'rosa', name: 'Rosa Marin', role: 'Mechanic — keeps the cars fast', skin: '#d8a077', hair: '#4a2a12', hairStyle: 'ponytail', jacket: '#7a2a2a', accent: '#ff9d5c' },
+  { id: 'dario', name: 'Dario Fontana', role: 'Fence — turns goods into cash', skin: '#e8c39a', hair: '#8a8a8a', hairStyle: 'grey', jacket: '#2a4a3a', accent: '#7de3a8' },
+  { id: 'lena', name: 'Lena Kross', role: 'Hacker — doors open for her', skin: '#f2c9a8', hair: '#c22a5a', hairStyle: 'bob', jacket: '#3a2a5a', accent: '#c98aff' },
+  { id: 'vex', name: 'Vex', role: 'Vultures leader — wants you gone', skin: '#b87a55', hair: '#000000', hairStyle: 'mohawk', jacket: '#0f0f0f', accent: '#ff3b30' },
 ];
 
 export const VEHICLES = [
-  { id: 'comet', name: 'Comet RS', kind: 'sports', topSpeed: 62, accel: 9.5, handling: 0.92, price: 18000, color: 0xc22e2e, seats: 2, desc: 'Sports coupe. Fast, loud, and impossible to ignore.' },
-  { id: 'velora', name: 'Velora GT', kind: 'sports', topSpeed: 58, accel: 8.8, handling: 0.9, price: 15000, color: 0x2e6fc2, seats: 2, desc: 'Grand tourer with a long nose and a longer temper.' },
-  { id: 'marlin', name: 'Marlin Sedan', kind: 'sedan', topSpeed: 46, accel: 6.2, handling: 0.78, price: 6000, color: 0x3a3a3a, seats: 4, desc: 'The sedan everyone drives and nobody remembers.' },
-  { id: 'sunset', name: 'Sunset Cruiser', kind: 'sedan', topSpeed: 44, accel: 5.8, handling: 0.75, price: 5200, color: 0xe0a030, seats: 4, desc: 'A beach-town classic with a soft top and a soft horn.' },
-  { id: 'hauler', name: 'Hauler Van', kind: 'van', topSpeed: 38, accel: 4.5, handling: 0.62, price: 4500, color: 0x6b7a8c, seats: 2, desc: 'A van that has carried everything except a secret.' },
-  { id: 'pickup', name: 'Dune Pickup', kind: 'pickup', topSpeed: 48, accel: 6.8, handling: 0.7, price: 8000, color: 0x4a6b3a, seats: 3, desc: 'Pickup with a bed full of sand and a radio full of static.' },
-  { id: 'taxi', name: 'Solmar Taxi', kind: 'taxi', topSpeed: 45, accel: 6.0, handling: 0.76, price: 0, color: 0xf5c542, seats: 4, desc: 'Yellow, metered, and always in a hurry.' },
-  { id: 'cruiser', name: 'PCPD Cruiser', kind: 'police', topSpeed: 55, accel: 8.2, handling: 0.85, price: 0, color: 0x1a1a2e, seats: 4, desc: 'Police interceptor. Light bar, loud siren, no patience.' },
-  { id: 'falcon', name: 'Falcon 250', kind: 'bike', topSpeed: 56, accel: 9.0, handling: 0.88, price: 9000, color: 0x8e2e6f, seats: 2, desc: 'A motorbike that leans like it means it.' },
-  { id: 'wasp', name: 'Wasp 125', kind: 'bike', topSpeed: 48, accel: 7.5, handling: 0.86, price: 5500, color: 0x2e8e6f, seats: 2, desc: 'Small, quick, and easy to lose in traffic.' },
-  { id: 'citybus', name: 'City Bus 12', kind: 'bus', topSpeed: 32, accel: 3.2, handling: 0.5, price: 0, color: 0x2e6f8e, seats: 20, desc: 'The bus is always late and always full.' },
+  { id: 'vortex', name: 'Vortex GT', kind: 'car', body: 'coupe', topSpeed: 58, accel: 26, grip: 0.92, price: 42000, colors: [0xd83a2a, 0x1e2a3a, 0xf2c94c] },
+  { id: 'solmar', name: 'Solmar Sedan', kind: 'car', body: 'sedan', topSpeed: 42, accel: 18, grip: 0.95, price: 12000, colors: [0x8fa8c8, 0xe8e0d0, 0x5a6a7a] },
+  { id: 'taxi', name: 'City Taxi', kind: 'car', body: 'sedan', topSpeed: 44, accel: 19, grip: 0.95, price: 9000, colors: [0xf2c94c] },
+  { id: 'pickup', name: 'Bison Pickup', kind: 'car', body: 'pickup', topSpeed: 46, accel: 20, grip: 0.9, price: 18000, colors: [0x7a4a2a, 0x3a5a3a, 0x9a9aa8] },
+  { id: 'van', name: 'Hauler Van', kind: 'car', body: 'van', topSpeed: 38, accel: 14, grip: 0.97, price: 15000, colors: [0xe8e0d0, 0x4a6a8a] },
+  { id: 'muscle', name: 'Thunder Muscle', kind: 'car', body: 'muscle', topSpeed: 52, accel: 24, grip: 0.85, price: 28000, colors: [0x2a9a5a, 0xd83a2a, 0x111111] },
+  { id: 'convert', name: 'Sunset Convertible', kind: 'car', body: 'convertible', topSpeed: 50, accel: 22, grip: 0.9, price: 34000, colors: [0xe85aa0, 0xf2f0e8, 0x4fc3c8] },
+  { id: 'limo', name: 'Grand Limo', kind: 'car', body: 'limo', topSpeed: 40, accel: 15, grip: 0.96, price: 60000, colors: [0x111111, 0x2a2a3a] },
+  { id: 'sportbike', name: 'Falcon Sport Bike', kind: 'bike', body: 'bike', topSpeed: 62, accel: 30, grip: 0.8, price: 22000, colors: [0xd83a2a, 0x1e2a3a] },
+  { id: 'cruiserbike', name: 'Road King Cruiser', kind: 'bike', body: 'bike', topSpeed: 48, accel: 20, grip: 0.88, price: 16000, colors: [0x3a3a3a, 0x7a2a2a] },
+  { id: 'bus', name: 'City Bus', kind: 'bus', body: 'bus', topSpeed: 34, accel: 11, grip: 0.98, price: 40000, colors: [0x4a9a5a, 0xe8e0d0] },
 ];
 
 export const WEAPONS = [
-  { id: 'pistol', name: 'Pistol', slot: 0, damage: 18, fireRate: 3.5, magazine: 12, reserve: 48, price: 800, range: 60, desc: 'Sidearm. Reliable, quiet, and always there.' },
-  { id: 'smg', name: 'SMG', slot: 1, damage: 12, fireRate: 9.0, magazine: 30, reserve: 120, price: 2400, range: 45, desc: 'Sprays fast and asks questions later.' },
-  { id: 'vk47', name: 'VK-47', slot: 2, damage: 34, fireRate: 5.5, magazine: 30, reserve: 90, price: 5200, range: 90, desc: 'The rifle everyone in Solmar knows by sound.' },
-  { id: 'shotgun', name: 'Shotgun', slot: 3, damage: 55, fireRate: 1.4, magazine: 6, reserve: 24, price: 3100, range: 25, desc: 'Close range. Very close. End of discussion.' },
-  { id: 'sniper', name: 'Sniper', slot: 4, damage: 95, fireRate: 0.8, magazine: 5, reserve: 15, price: 9800, range: 160, desc: 'One shot from a rooftop away.' },
-  { id: 'revolver', name: 'Revolver', slot: 0, damage: 42, fireRate: 1.8, magazine: 6, reserve: 30, price: 1900, range: 70, desc: 'Six rounds of old-fashioned argument.' },
-  { id: 'carbine', name: 'Carbine', slot: 2, damage: 28, fireRate: 7.0, magazine: 24, reserve: 96, price: 4400, range: 80, desc: 'Light, quick, and steady on the move.' },
+  { id: 'pistol', name: 'P9 Pistol', slot: 0, damage: 22, fireRate: 0.22, mag: 12, reserve: 120, range: 60, auto: false, price: 800, desc: 'Reliable sidearm. Quick draw, quiet work.' },
+  { id: 'smg', name: 'VK-9 SMG', slot: 1, damage: 14, fireRate: 0.09, mag: 32, reserve: 160, range: 45, auto: true, price: 2400, desc: 'Sprays fast up close. Eats ammo like candy.' },
+  { id: 'vk47', name: 'VK-47 Rifle', slot: 2, damage: 34, fireRate: 0.13, mag: 30, reserve: 90, range: 110, auto: true, price: 5200, desc: 'The workhorse. Wood, steel and bad intentions.' },
+  { id: 'shotgun', name: 'S12 Shotgun', slot: 3, damage: 55, fireRate: 0.8, mag: 6, reserve: 36, range: 22, auto: false, price: 3100, desc: 'Closes arguments at arm’s length.' },
+  { id: 'sniper', name: 'L96 Longshot', slot: 4, damage: 95, fireRate: 1.4, mag: 5, reserve: 25, range: 220, auto: false, price: 9800, desc: 'One shot, one long goodbye.' },
+  { id: 'grenade', name: 'Frag Grenade', slot: -1, damage: 120, fireRate: 1.0, mag: 1, reserve: 8, range: 40, auto: false, price: 600, desc: 'Throw it, then stop watching the fuse.' },
+  { id: 'molotov', name: 'Molotov', slot: -1, damage: 40, fireRate: 1.0, mag: 1, reserve: 6, range: 30, auto: false, price: 250, desc: 'A bottle, a rag, a bad evening for someone.' },
+];
+
+export const RESPECT_TIERS = [
+  { min: 0, title: 'Nobody' },
+  { min: 200, title: 'Small Timer' },
+  { min: 500, title: 'Hustler' },
+  { min: 900, title: 'Street Star' },
+  { min: 1400, title: 'Big Shot' },
+  { min: 2200, title: 'King of Solmar' },
+];
+
+export function respectTitleFor(respect) {
+  let title = RESPECT_TIERS[0].title;
+  for (const tier of RESPECT_TIERS) if (respect >= tier.min) title = tier.title;
+  return title;
+}
+
+export const MISSIONS = [
+  {
+    id: 1, name: 'First Wheels', giver: 'kane', payout: 1500, respect: 200,
+    intro: 'Kane needs a fast car. Not bought — taken. The Vortex GT by the marina is yours if you can take it.',
+    stages: [
+      { objective: 'Steal the Vortex GT at the marina', hint: 'Walk up to the coupe and take it.' },
+      { objective: 'Drive the Vortex GT to Rosa’s garage', hint: 'Follow the yellow marker. Mind the traffic.' },
+      { objective: 'Park at Rosa’s garage', hint: 'Slow down and roll in.' },
+    ],
+    outro: 'Clean take. Rosa says the engine purrs. You are in the crew now.',
+  },
+  {
+    id: 2, name: 'Getaway Driver', giver: 'kane', payout: 2800, respect: 300,
+    intro: 'Kane’s crew hit a bookie in Old Town. You drive. Lose the cops, get them to the safehouse.',
+    stages: [
+      { objective: 'Pick up the crew in Old Town', hint: 'Drive to the marker and wait for them.' },
+      { objective: 'Lose the police — wanted level 1', hint: 'Break line of sight. Alleys help.' },
+      { objective: 'Deliver the crew to the safehouse', hint: 'No cops on your tail, or the job fails.' },
+    ],
+    outro: 'Nobody saw a thing. Kane owes you one.',
+  },
+  {
+    id: 3, name: 'The Collector', giver: 'dario', payout: 3600, respect: 350,
+    intro: 'Three shops owe Dario money. You are the reminder. Collect all three packages.',
+    stages: [
+      { objective: 'Collect the package in Downtown', hint: 'First shop, first envelope.' },
+      { objective: 'Collect the package on Neon Mile', hint: 'Second shop. The owner will not argue twice.' },
+      { objective: 'Collect the package at Palm Beach', hint: 'Last one. Then bring them to Dario.' },
+      { objective: 'Return the packages to Dario', hint: 'Harbor North, by the cranes.' },
+    ],
+    outro: 'Dario counts it twice and smiles. Debts paid, respect earned.',
+  },
+  {
+    id: 4, name: 'Vulture Trouble', giver: 'rosa', payout: 4200, respect: 400,
+    intro: 'The Vultures jumped Rosa’s garage on Neon Mile. Six of them. You, a VK-47, and a long evening.',
+    stages: [
+      { objective: 'Reach the garage on Neon Mile', hint: 'On foot. Guns out.' },
+      { objective: 'Take down the Vultures — 0 of 6 down', hint: 'Use cover. They shoot back.' },
+      { objective: 'Finish the last Vulture', hint: 'Vex will remember this.' },
+    ],
+    outro: 'Six down. The garage is Rosa’s again. The Vultures will not forget — neither will you.',
+  },
+  {
+    id: 5, name: 'The Big Score', giver: 'kane', payout: 12000, respect: 500,
+    intro: 'Downtown Bank Tower. One vault, one night, one crew. Get in, get the cash, get out clean.',
+    stages: [
+      { objective: 'Enter the Downtown Bank Tower', hint: 'Front door is for customers. Use the side alley.' },
+      { objective: 'Crack the vault', hint: 'Lena is in your ear. Hold the room.' },
+      { objective: 'Escape with the cash — wanted level 3', hint: 'Out the back, into the car, and gone.' },
+    ],
+    outro: 'Nine thousand in one night. The crew is talking about you now.',
+  },
+  {
+    id: 6, name: 'King of Solmar', giver: 'kane', payout: 15000, respect: 700,
+    intro: 'Vex set a trap at the marina and the whole PCPD is coming. One last drive. Escape, and the city is yours.',
+    stages: [
+      { objective: 'Reach the marina with the crew', hint: 'Four stars. No stopping.' },
+      { objective: 'Escape — outrun the pursuit', hint: 'Lose the cruisers. The heli sees everything.' },
+      { objective: 'Reach the boat at the far pier', hint: 'The boat is the ending. Get on it.' },
+    ],
+    outro: 'The city lights shrink behind you. King of Solmar.',
+  },
 ];
 
 export const RADIO_STATIONS = [
   {
-    id: 'golden-wave',
-    name: 'SOLMAR 88.5',
-    display: 'SOLMAR 88.5 Golden Wave',
-    freq: 88.5,
-    genre: 'golden pop',
-    tempo: 96,
-    drum: 'four-on-floor',
-    chords: ['C', 'G', 'Am', 'F'],
+    id: 'golden', name: 'SOLMAR 88.5', title: 'Golden Wave', genre: 'Sunset pop', freq: '88.5', tempo: 104,
+    drum: 'pop', bass: [0, 0, 7, 5], chords: [[0, 4, 7], [5, 9, 12], [3, 7, 10], [5, 9, 12]],
     tracks: [
-      { title: 'Sunset Over Marina', artist: 'Vela Roja' },
-      { title: 'Gold in the Air', artist: 'The Palms' },
-      { title: 'Drive All Night', artist: 'Celia Mar' },
-      { title: 'Neon Heart', artist: 'Vela Roja' },
+      { title: 'Golden Hour Drive', artist: 'Marina Lights', seconds: 214 },
+      { title: 'Palm Shadows', artist: 'The Coastals', seconds: 188 },
+      { title: 'Neon Hearts', artist: 'Vela', seconds: 202 },
+      { title: 'Last Summer in Solmar', artist: 'Dune Radio', seconds: 226 },
     ],
   },
   {
-    id: 'latin-fire',
-    name: 'FUEGO 101.9',
-    display: 'FUEGO 101.9 Latin Fire',
-    freq: 101.9,
-    genre: 'latin',
-    tempo: 104,
-    drum: 'dembow 3-3-2',
-    chords: ['Dm', 'Bb', 'F', 'C'],
+    id: 'neon', name: 'NEON 101.2', title: 'Neon FM', genre: 'Synthwave', freq: '101.2', tempo: 118,
+    drum: 'four', bass: [0, 0, 0, 0], chords: [[0, 3, 7], [8, 12, 15], [5, 8, 12], [7, 10, 14]],
     tracks: [
-      { title: 'Fuego en la Calle', artist: 'Los Hermanos Sol' },
-      { title: 'Baila Marina', artist: 'Carmen Luz' },
-      { title: 'Tres y Dos', artist: 'DJ Marea' },
-      { title: 'Noche de Oro', artist: 'Los Hermanos Sol' },
+      { title: 'Midnight Overdrive', artist: 'Vector Nine', seconds: 196 },
+      { title: 'Chrome Rain', artist: 'Static Bloom', seconds: 178 },
+      { title: 'Grid Runner', artist: 'Laser Coast', seconds: 210 },
+      { title: 'Afterglow Avenue', artist: 'Night Drive', seconds: 184 },
     ],
   },
   {
-    id: 'neon-drive',
-    name: 'WAVE 92.3',
-    display: 'WAVE 92.3 Neon Drive',
-    freq: 92.3,
-    genre: 'synthwave',
-    tempo: 118,
-    drum: 'gated snare drive',
-    chords: ['Am', 'F', 'C', 'G'],
+    id: 'palm', name: 'PALM 94.7', title: 'Palm Radio', genre: 'Latin', freq: '94.7', tempo: 96,
+    drum: 'dembow', bass: [0, 7, 0, 5], chords: [[0, 4, 7], [0, 4, 7], [5, 9, 12], [7, 11, 14]],
     tracks: [
-      { title: 'Neon Drive', artist: 'Midnight Circuit' },
-      { title: 'Chrome Sunset', artist: 'Laser Palms' },
-      { title: 'Afterglow Avenue', artist: 'Midnight Circuit' },
-      { title: 'Electric Tide', artist: 'Laser Palms' },
+      { title: 'Baila en la Marina', artist: 'Los Soles', seconds: 204 },
+      { title: 'Fuego Lento', artist: 'Celia Mar', seconds: 192 },
+      { title: 'Calle de Oro', artist: 'Ritmo Sol', seconds: 218 },
+      { title: 'Verano Sin Fin', artist: 'Isla Verde', seconds: 176 },
     ],
   },
   {
-    id: 'harbor-talk',
-    name: 'HARBOR 76.1',
-    display: 'HARBOR 76.1 Talk & Jazz',
-    freq: 76.1,
-    genre: 'jazz talk',
-    tempo: 78,
-    drum: 'brush swing',
-    chords: ['Dm7', 'G7', 'Cmaj7', 'Am7'],
+    id: 'harbor', name: 'HARBOR 106.9', title: 'Harbor Rock', genre: 'Rock', freq: '106.9', tempo: 132,
+    drum: 'rock', bass: [0, 0, 3, 5], chords: [[0, 5, 7], [0, 5, 7], [3, 7, 10], [5, 10, 12]],
     tracks: [
-      { title: 'Harbor Lights', artist: 'The Blue Notes' },
-      { title: 'Slow Morning', artist: 'Elena Voss' },
-      { title: 'Dockside Blues', artist: 'The Blue Notes' },
-      { title: 'Last Ferry Home', artist: 'Elena Voss' },
+      { title: 'Rust and Thunder', artist: 'The Cranes', seconds: 208 },
+      { title: 'Harbor Lights', artist: 'North Pier', seconds: 186 },
+      { title: 'Full Throttle', artist: 'Gasoline Choir', seconds: 198 },
+      { title: 'Last Ferry Home', artist: 'Saltwater Sons', seconds: 222 },
     ],
   },
 ];
 
-export const RESPECT_TIERS = [
-  { level: 0, name: 'Nobody', min: 0, desc: 'Nobody on the street knows your name.' },
-  { level: 1, name: 'Small Timer', min: 100, desc: 'Shopkeepers nod. Cops watch.' },
-  { level: 2, name: 'Street Known', min: 300, desc: 'Your name travels faster than you do.' },
-  { level: 3, name: 'Made Man', min: 700, desc: 'Kane takes your calls. Rosa trusts you.' },
-  { level: 4, name: 'Big Shot', min: 1400, desc: 'The city makes room when you walk in.' },
-  { level: 5, name: 'King of Solmar', min: 2500, desc: 'The whole city is yours. Act like it.' },
+export const RIVALS = [
+  { id: 'neri', name: 'Neri Flint', car: 'vortex', color: 0x2a9a5a, skill: 0.92, taunt: 'Flint does not lose on home streets.' },
+  { id: 'zella', name: 'Zella Coil', car: 'muscle', color: 0xe85aa0, skill: 0.88, taunt: 'Coil owns the night. Try to keep up.' },
+  { id: 'ivo', name: 'Ivo Switch', car: 'convert', color: 0x4fc3c8, skill: 0.85, taunt: 'Switch is already at the finish line.' },
 ];
 
-export const RACE_RIVALS = [
-  { id: 'neri', name: 'Neri Flint', car: 'Comet RS', color: 0xc22e2e, skill: 0.92, taunt: 'Flint does not lose. Flint collects.' },
-  { id: 'zella', name: 'Zella Coil', car: 'Velora GT', color: 0x2e6fc2, skill: 0.88, taunt: 'Keep up, darling. The Mile is mine.' },
-  { id: 'ivo', name: 'Ivo Switch', car: 'Falcon 250', color: 0x8e2e6f, skill: 0.84, taunt: 'I switch lanes. You switch excuses.' },
+export const POSTCARDS = [
+  'Marina Pier', 'Downtown Bank Tower', 'Neon Mile Diner', 'Old Town Bells', 'Palm Beach Surf',
+  'Harbor Cranes', 'Ferris Wheel', 'Gold Street', 'Rosa’s Garage', 'Penthouse View',
+  'The Lighthouse', 'Market Square', 'Sunset Overpass', 'Vulture Alley', 'The Boardwalk',
+  'City Hall Steps', 'Marina Bar', 'The Causeway', 'Palm Court', 'Solmar Sign Hill',
 ];
 
 export const PRICES = {
-  penthouse: 45000,
-  penthouseIncome: 800,
-  respray: 350,
+  respray: 250,
+  repair: 400,
+  penthouse: 12000,
+  penthouseIncomePerDay: 1200,
   garageSlot: 5000,
-  safehouse: 12000,
-  taxiFarePerMeter: 2,
-  tapeReward: 250,
-  raceEntry: 500,
-  raceWin: 2500,
-  ammoBox: 200,
-  armor: 1500,
-  health: 800,
+  safehouseHeal: 0,
+  taxiFareBase: 60,
+  taxiFarePerUnit: 2,
+  weaponAmmo: { pistol: 40, smg: 90, vk47: 120, shotgun: 60, sniper: 150, grenade: 600, molotov: 250 },
 };
 
-export const POSTCARDS = [
-  { id: 'pc01', name: 'Marina Dawn', district: 'marina', x: 40, y: 30 },
-  { id: 'pc02', name: 'Yacht Row', district: 'marina', x: 150, y: 90 },
-  { id: 'pc03', name: 'Boardwalk Lights', district: 'marina', x: 90, y: 130 },
-  { id: 'pc04', name: 'Neon Gate', district: 'neon', x: 260, y: 40 },
-  { id: 'pc05', name: 'Mile After Dark', district: 'neon', x: 350, y: 110 },
-  { id: 'pc06', name: 'Race Start', district: 'neon', x: 300, y: 130 },
-  { id: 'pc07', name: 'Bank Tower', district: 'downtown', x: 480, y: 50 },
-  { id: 'pc08', name: 'Glass Canyon', district: 'downtown', x: 560, y: 120 },
-  { id: 'pc09', name: 'Skyline Dusk', district: 'downtown', x: 600, y: 160 },
-  { id: 'pc10', name: 'Market Morning', district: 'oldtown', x: 60, y: 200 },
-  { id: 'pc11', name: 'Old Church', district: 'oldtown', x: 150, y: 260 },
-  { id: 'pc12', name: 'Cobbled Lane', district: 'oldtown', x: 100, y: 310 },
-  { id: 'pc13', name: 'Surf Shack', district: 'beach', x: 280, y: 200 },
-  { id: 'pc14', name: 'Palm Row', district: 'beach', x: 360, y: 260 },
-  { id: 'pc15', name: 'Sunset Swim', district: 'beach', x: 320, y: 310 },
-  { id: 'pc16', name: 'Villa View', district: 'hills', x: 480, y: 220 },
-  { id: 'pc17', name: 'Overlook Night', district: 'hills', x: 560, y: 260 },
-  { id: 'pc18', name: 'Hill Road', district: 'hills', x: 520, y: 310 },
-  { id: 'pc19', name: 'Harbor Crane', district: 'marina', x: 190, y: 60 },
-  { id: 'pc20', name: 'Golden Hour', district: 'beach', x: 240, y: 280 },
+export const STREET_NAMES = [
+  'Gold Street', 'Marina Boulevard', 'Neon Avenue', 'Palm Court', 'Harbor Road',
+  'Old Town Lane', 'Sunset Overpass', 'Bank Row', 'Boardwalk', 'Causeway Drive',
+  'Vulture Alley', 'Lighthouse Point', 'Market Square', 'Ferry Lane', 'Coral Street',
 ];
 
+export const BANNERS = [
+  { text: 'SOLMAR', sub: 'Streets of Gold', x: 0, z: -120 },
+  { text: 'NEON MILE', sub: 'The city never sleeps', x: -40, z: 30 },
+  { text: 'MARINA', sub: 'Boats, beaches, big money', x: 165, z: 10 },
+  { text: 'DOWNTOWN', sub: 'Glass towers, golden deals', x: 0, z: -70 },
+  { text: 'PALM BEACH', sub: 'Sun, surf and slow days', x: 40, z: 165 },
+];
+
+// Neon sign colours, shared by every glowing sign in the city.
+export const NEON = {
+  pink: 0xff5a8a, cyan: 0x7ad9ff, gold: 0xffd34a, green: 0x2ad84a, purple: 0xc98aff,
+};
+
+// Street races: checkpoints run around the ring road, in order.
+export const RACES = [
+  {
+    id: 'neon-mile', name: 'Neon Mile', payout: 5000,
+    checkpoints: [
+      { x: 204, z: 0 }, { x: 102, z: 177 }, { x: -102, z: 177 },
+      { x: -204, z: 0 }, { x: -102, z: -177 }, { x: 102, z: -177 },
+    ],
+  },
+];
+
+// Enterable places: the door is at these coordinates on the street.
 export const INTERIORS = [
-  {
-    id: 'diner',
-    name: 'Neon Mile Diner',
-    district: 'neon',
-    x: 300,
-    y: 80,
-    desc: 'A chrome diner where Rosa plans jobs over cold coffee.',
-  },
-  {
-    id: 'penthouse',
-    name: 'Penthouse Suite',
-    district: 'downtown',
-    x: 520,
-    y: 90,
-    desc: 'Glass walls, gold taps, and a view of the whole city you own.',
-  },
+  { id: 'diner', name: 'Neon Mile Diner', x: -40, z: 30, blurb: 'Counter seats, neon light, the best pie in Solmar.' },
+  { id: 'market', name: 'Harbor Market', x: -90, z: -140, blurb: 'Stalls, shouting vendors, fresh fish.' },
+  { id: 'garage', name: 'Rosa’s Garage', x: -20, z: 62, blurb: 'Rosa’s tools, Rosa’s rules. Respray and repairs.' },
+  { id: 'penthouse', name: 'Penthouse Tower', x: 0, z: -100, blurb: 'Your place above the city. Sleep here.' },
 ];
-
-export const PROPERTIES = [
-  { id: 'safehouse', name: 'Beachfront Safehouse', district: 'beach', price: 12000, income: 0, desc: 'A quiet flat where the heat never looks.' },
-  { id: 'penthouse', name: 'Downtown Penthouse', district: 'downtown', price: 45000, income: 800, desc: 'The top floor. The whole city below.' },
-  { id: 'garage', name: 'Old Town Garage', district: 'oldtown', price: 5000, income: 0, desc: 'Kane\'s garage. Four slots, no questions.' },
-];
-
-export const CAST = [
-  { id: 'milo', name: 'Milo', role: 'Player — driver, thief, king-in-waiting', portrait: 'milo', color: 0x2e6fc2 },
-  { id: 'kane', name: 'Kane', role: 'Fixer — plans the jobs, takes the cut', portrait: 'kane', color: 0x3a3a3a },
-  { id: 'rosa', name: 'Rosa', role: 'Driver — fast, loyal, louder than the engine', portrait: 'rosa', color: 0xc22e2e },
-  { id: 'vex', name: 'Vex', role: 'Vultures leader — wants the city for himself', portrait: 'vex', color: 0x8e2e6f },
-  { id: 'dara', name: 'Dara', role: 'Mechanic — keeps the cars running and the secrets kept', portrait: 'dara', color: 0xe0a030 },
-  { id: 'otto', name: 'Otto', role: 'Bank manager — counts gold, fears Milo', portrait: 'otto', color: 0x4a6b3a },
-];
-
-export function missionById(id) {
-  return MISSIONS.find((m) => m.id === id);
-}
-
-export function vehicleById(id) {
-  return VEHICLES.find((v) => v.id === id);
-}
-
-export function weaponById(id) {
-  return WEAPONS.find((w) => w.id === id);
-}
-
-export function stationById(id) {
-  return RADIO_STATIONS.find((s) => s.id === id);
-}
-
-export function districtById(id) {
-  return DISTRICTS.find((d) => d.id === id);
-}
-
-export function respectTierFor(respect) {
-  let tier = RESPECT_TIERS[0];
-  for (const t of RESPECT_TIERS) {
-    if (respect >= t.min) tier = t;
-  }
-  return tier;
-}

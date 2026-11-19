@@ -1,52 +1,107 @@
-// SOLMAR 3D — shared constants. Single source of truth for world size,
-// clock, budgets, palette and camera defaults. No imports.
-export const WORLD_W = 640;
-export const WORLD_H = 480;
-export const START_HOUR = 18.6;
-export const CLOCK_RATE = 0.6;
-export const DEFAULT_SEED = 1;
-export const SAVE_KEY = 'solmar-3d-save-v4';
-export const STATS_KEY = 'solmar-3d-stats-v4';
-export const MAX_WANTED = 5;
-export const BUDGET = {
+// SOLMAR 3D — world constants. Single source of truth for every module:
+// the sim, the renderer, the shots and the gates all read these numbers,
+// so a tuned value can never drift between systems.
+export const WORLD = {
+  width: 640,
+  depth: 480,
+  // The island is a circle: Sky wants the map ROUND, not square.
+  // Land is the disc of this radius around the world centre; sea is outside.
+  islandRadius: 232,
+  ringRoadRadius: 204,
+  seaLevel: -0.4,
+};
+
+export const TIME = {
+  // Golden hour, locked by Sky (design review 2026-11-19 14:26 WITA).
+  startHour: 18.6,
+  // In-game minutes passing per real second while playing.
+  minutesPerSecond: 0.6,
+  // Sun elevation curve: rises 06:00, sets ~19:30.
+  sunriseHour: 6.0,
+  sunsetHour: 19.5,
+  nightHour: 21.0,
+};
+
+export const ROADS = {
+  // No building footprint may come closer than this to a road centreline.
+  setback: 12,
+  width: 14,
+  laneWidth: 3.4,
+  sidewalkWidth: 3.0,
+};
+
+export const CITY = {
+  buildingTarget: 200,
+  palmTarget: 150,
+  districts: 6,
+};
+
+export const PLAYER = {
+  // Head:body proportion Sky demanded: 1 : 7.5, human-readable, never alien.
+  heightUnits: 1.8,
+  headRatio: 1 / 7.5,
+  walkSpeed: 5.2,
+  runSpeed: 8.4,
+  maxHealth: 100,
+  maxArmor: 100,
+};
+
+export const CAMERA = {
+  chaseBoomMin: 13,
+  chaseBoomMax: 16,
+  fovSlow: 60,
+  fovFast: 72,
+  swingMax: 0.35,
+};
+
+export const POLICE = {
+  maxStars: 5,
+  // Foot officers stop and shoot in bursts at wanted >= 2; wanted 1 is arrest only.
+  shootWantedMin: 2,
+  // Police never shoot during a story mission.
+  neverShootDuringMission: true,
+  responseUnitsMax: 5,
+  searchRadius: 90,
+};
+
+export const PERF = {
   maxDrawCalls: 100,
   maxTriangles: 200000,
-  simMs: 8,
-  minFps: 30,
+  maxSimMs: 8,
+  lightPoolMin: 8,
+  lightPoolMax: 12,
 };
-export const DISTRICTS = [
-  'Solmar Marina',
-  'Neon Mile',
-  'Downtown',
-  'Old Town',
-  'Beachfront',
-  'Hillside',
-];
-export const PALETTE = {
-  gold: 0xd9a441,
-  orange: 0xe07b39,
-  accent: '#d9a441',
-  hudBg: 'rgba(10, 12, 24, 0.72)',
-  hudBorder: 'rgba(217, 164, 65, 0.55)',
-  text: '#f5ead2',
-  muted: '#b8ab8a',
-  danger: '#e5484d',
-  ok: '#46c26a',
-  policeBlue: '#3a86ff',
-  policeRed: '#ff3b30',
+
+export const SHOTS = {
+  width: 1280,
+  height: 720,
+  maxBytes: 262144,
+  // Luma floors the shot script enforces, fail-loud.
+  lumaFloor: { cover: 0.35, race: 0.35, onfoot: 0.25, map: 0.35 },
+  // Target file size band: dense scenes land here; thin scenes do not.
+  sizeTargetMin: 180 * 1024,
 };
-export const CAMERA = {
-  boomMin: 13,
-  boomMax: 16,
-  fovMin: 60,
-  fovMax: 72,
-  swingMax: 0.35,
-  height: 5.2,
+
+// Staging save the shots load: a real mid-game save, never a fresh save.
+export const STAGING = {
+  // Measured by missionCheck 2026-11-19 (rebuild #4): $24,950 earned
+  // through missions 1–5, minus the $12,000 penthouse bought for real.
+  cash: 12950,
+  respect: 1770,
+  respectTitle: 'Big Shot',
+  job: 6,
+  day: 3,
+  postcards: 8,
+  postcardsTotal: 20,
+  mission: 6,
+  missionStage: 'escape',
+  missionTimer: 127,
+  weaponsOwned: ['pistol', 'smg', 'vk47', 'shotgun', 'sniper'],
+  ammo: { pistol: [12, 120], smg: [32, 160], vk47: [30, 90], shotgun: [6, 36], sniper: [5, 25] },
+  penthouseOwned: true,
 };
-export const SHOT_HOURS = { cover: 18.6, race: 18.8, onfoot: 20.5, map: 12.0 };
-export const LUMA_FLOOR = { cover: 0.35, race: 0.35, onfoot: 0.25, map: 0.35 };
-export const SHOT_MAX_BYTES = 262144;
-export const SHOT_TARGET_MIN_BYTES = 180000;
-export const SHOT_TARGET_MAX_BYTES = 256000;
-export const GAME_VERSION = '4.0.0';
-export const GAME_TITLE = 'SOLMAR 3D — Streets of Gold';
+
+export const HUD = {
+  weaponSlots: ['pistol', 'smg', 'vk47', 'shotgun', 'sniper'],
+  radioStations: 4,
+};

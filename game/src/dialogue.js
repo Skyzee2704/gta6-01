@@ -1,84 +1,70 @@
-// SOLMAR 3D — mission dialogue and NPC barks. Lines are data; the queue
-// is the only logic. Portrait keys match portraits.js cast ids.
-import { MISSIONS } from './data.js';
+// SOLMAR 3D — dialogue. Every mission line is written here, spoken by a
+// named member of the cast, and shown with that character's portrait.
+// Full English, in character, never placeholder text.
+import { MISSIONS, CAST } from './data.js';
 
-export const STORY_HOOK =
-  'Milo came to Solmar with empty pockets and a fast car. The city gave him a crew, a war, and a crown to steal.';
-
-export const BARKS = [
-  { speaker: 'Pedestrian', line: 'Nice car. Shame about the driver.' },
-  { speaker: 'Pedestrian', line: 'Did you see that? The cops are everywhere tonight.' },
-  { speaker: 'Pedestrian', line: 'I love this city. It loves me back, mostly.' },
-  { speaker: 'Pedestrian', line: 'Taxi! No, wait — not that one. That one is stolen.' },
-  { speaker: 'Pedestrian', line: 'Golden hour on the Marina. Best free show in Solmar.' },
-  { speaker: 'Cop', line: 'Pull over! Now! Do not make this worse.' },
-  { speaker: 'Cop', line: 'All units, suspect is moving fast through the Marina.' },
-  { speaker: 'Cop', line: 'He is getting away! Somebody cut him off!' },
-];
-
-export function dialogueFor(missionId, stageIndex) {
-  const mission = MISSIONS.find((m) => m.id === missionId);
-  if (!mission) return null;
-  const stage = mission.stages[Math.min(stageIndex, mission.stages.length - 1)];
-  if (!stage || !stage.dialogue) return null;
-  return {
-    mission: mission.name,
-    stage: stage.name,
-    speaker: stage.dialogue.speaker,
-    portrait: stage.dialogue.portrait,
-    line: stage.dialogue.line,
-  };
+export function castById(id) {
+  return CAST.find((c) => c.id === id) || CAST[0];
 }
 
-export function addDialogue(queue, speaker, line, portrait) {
-  queue.push({ speaker, line, portrait: portrait || 'kane', t: 0 });
-  return queue.length;
+export function dialogueFor(missionId, stage, phase) {
+  const def = MISSIONS.find((m) => m.id === missionId);
+  if (!def) return null;
+  const giver = castById(def.giver);
+  if (phase === 'intro') return { speaker: giver.id, name: giver.name, text: def.intro };
+  if (phase === 'outro') return { speaker: giver.id, name: giver.name, text: def.outro };
+  const lines = MISSION_STAGE_LINES[missionId] || {};
+  const line = lines[stage];
+  if (!line) return { speaker: giver.id, name: giver.name, text: def.stages[Math.min(stage, def.stages.length - 1)].hint };
+  return line;
 }
 
-export function queueMissionDialogue(engine, def) {
-  const line = dialogueFor(def.id, 0);
-  if (line) {
-    addDialogue(engine.dialogue, line.speaker, line.line, line.portrait);
-  }
-  addDialogue(engine.dialogue, def.giver || 'Kane', def.intro || '', def.giverPortrait || 'kane');
-  return engine.dialogue.length;
-}
+const MISSION_STAGE_LINES = {
+  1: {
+    0: { speaker: 'kane', name: 'Kane Doyle', text: 'That coupe by the marina. Take it. Quietly, if you can.' },
+    1: { speaker: 'rosa', name: 'Rosa Marin', text: 'Nice. Bring her to my garage — I will make her faster.' },
+    2: { speaker: 'rosa', name: 'Rosa Marin', text: 'Roll her in slow. She is yours now, Milo.' },
+  },
+  2: {
+    0: { speaker: 'kane', name: 'Kane Doyle', text: 'Pick the crew up in Old Town. No detours, no heroes.' },
+    1: { speaker: 'kane', name: 'Kane Doyle', text: 'Cops on us. Break line of sight — alleys, not highways.' },
+    2: { speaker: 'lena', name: 'Lena Kross', text: 'Clear. Safehouse is two blocks east. Bring them home.' },
+  },
+  3: {
+    0: { speaker: 'dario', name: 'Dario Fontana', text: 'First shop, Downtown. The owner knows the drill.' },
+    1: { speaker: 'dario', name: 'Dario Fontana', text: 'Neon Mile next. Smile when you ask.' },
+    2: { speaker: 'dario', name: 'Dario Fontana', text: 'Last one, Palm Beach. Then bring it all to me.' },
+    3: { speaker: 'dario', name: 'Dario Fontana', text: 'Harbor Market. Do not stop for anyone.' },
+  },
+  4: {
+    0: { speaker: 'rosa', name: 'Rosa Marin', text: 'They are inside my garage, Milo. Six Vultures. End it.' },
+    1: { speaker: 'rosa', name: 'Rosa Marin', text: 'Use the crates for cover. They shoot first and ask never.' },
+  },
+  5: {
+    0: { speaker: 'lena', name: 'Lena Kross', text: 'Side alley, not the front door. Cameras are already mine.' },
+    1: { speaker: 'lena', name: 'Lena Kross', text: 'Vault is open. Hold the room twenty seconds. Count with me.' },
+    2: { speaker: 'kane', name: 'Kane Doyle', text: 'Three stars and a bag of cash. Drive like the city is on fire.' },
+  },
+  6: {
+    0: { speaker: 'kane', name: 'Kane Doyle', text: 'Vex set the trap. The whole PCPD is coming. Get to the marina.' },
+    1: { speaker: 'kane', name: 'Kane Doyle', text: 'Four stars. Do not stop for anything. The far pier — go!' },
+    2: { speaker: 'rosa', name: 'Rosa Marin', text: 'The boat is at the pier. Get on it, Milo. Get on it now.' },
+  },
+};
 
-export function missionIntro(missionId) {
-  const mission = MISSIONS.find((m) => m.id === missionId);
-  if (!mission) return '';
-  return mission.intro;
-}
-
-export function createDialogue() {
-  const queue = [];
-  let current = null;
-  return {
-    enqueue(entry) {
-      if (!entry) return;
-      queue.push(entry);
-      if (!current) current = queue.shift();
-    },
-    enqueueMission(missionId, stageIndex) {
-      const line = dialogueFor(missionId, stageIndex);
-      if (line) this.enqueue(line);
-    },
-    current() {
-      return current;
-    },
-    advance() {
-      current = queue.length > 0 ? queue.shift() : null;
-      return current;
-    },
-    clear() {
-      queue.length = 0;
-      current = null;
-    },
-    get pending() {
-      return queue.length;
-    },
-    get active() {
-      return current != null;
-    },
-  };
-}
+// One-liners the world drops when the player does something notable.
+export const BARKS = {
+  steal: [
+    { speaker: 'milo', name: 'Milo Vane', text: 'Borrowed. Permanently.' },
+    { speaker: 'milo', name: 'Milo Vane', text: 'She drives like a dream. My dream now.' },
+  ],
+  wanted: [
+    { speaker: 'lena', name: 'Lena Kross', text: 'PCPD is on you. Lose them before they box you in.' },
+  ],
+  escape: [
+    { speaker: 'kane', name: 'Kane Doyle', text: 'You lost them. That is how legends start.' },
+  ],
+  race: [
+    { speaker: 'neri', name: 'Neri Flint', text: 'Flint does not lose on home streets.' },
+  ],
+};

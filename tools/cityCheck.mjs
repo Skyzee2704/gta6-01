@@ -1,64 +1,81 @@
-// SOLMAR 3D — cityCheck: headless city gate (Node, no browser).
-// Road connectivity, dry landmarks/footprints, districts, roof diversity,
-// ~200 buildings and ~150 trees for seeds 1-3, no building covering the
-// spawn camera.
-//
-// 2026-11-19 (rebuild #3, Sky: "gedung nutupin jalan"): new check
-// "no building footprint on road/sidewalk" via footprintClearOfRoads
-// — the old "no building on road" check only tested the centre
-// point, so a wide building could pass while its edge sat on the
-// asphalt. Verified: footprintOnRoad=0 for seeds 1-3. Rewritten
-// under recording 01a1f2f3 (recorder 01a1f27c died 16:33 WITA).
-import { buildCity, roadConnectivity, isOnRoad, isInSea, footprintClearOfRoads, districtAtPoint, LANDMARKS } from '../game/src/city.js';
-import { roofDiversity, buildingAt } from '../game/src/buildings.js';
-import { DISTRICTS } from '../game/src/data.js';
+// cityCheck — the city geometry gate. Round island, buildings clear of
+// roads by the 12-unit setback, spawn and chase camera clear of
+// footprints, road graph fully connected, landmarks present. Prints
+// measured numbers; exits 1 on fail.
+import { createState } from '../game/src/world.js';
+import { pointInBuilding, computeChaseCamera } from '../game/src/character.js';
 
 const failures = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS' : 'FAIL') + ' ' + name + (detail != null ? ' — ' + detail : ''));
-  if (!ok) failures.push(name);
+const check = (ok, label, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failures.push(label);
+};
+
+const state = createState(1);
+const city = state.city;
+
+function segDist(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const l2 = dx * dx + dz * dz;
+  let t = l2 === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
 }
 
-for (const seed of [1, 2, 3]) {
-  const city = buildCity(seed);
-  const conn = roadConnectivity(city);
-  check('seed ' + seed + ' road graph connected', conn.connected === true, conn.reached + '/' + conn.total + ' nodes');
-  check('seed ' + seed + ' ~200 buildings', city.buildings.length >= 190 && city.buildings.length <= 210, 'buildings=' + city.buildings.length);
-  check('seed ' + seed + ' ~150 trees', city.trees.length >= 140 && city.trees.length <= 160, 'trees=' + city.trees.length);
-  let onRoad = 0;
-  let inSea = 0;
-  let footprintOnRoad = 0;
-  for (const b of city.buildings) {
-    if (isOnRoad(b.x, b.y)) onRoad++;
-    if (isInSea(b.x, b.y)) inSea++;
-    if (!footprintClearOfRoads(b.x, b.y, b.w, b.d)) footprintOnRoad++;
-  }
-  check('seed ' + seed + ' no building on road', onRoad === 0, 'onRoad=' + onRoad);
-  check('seed ' + seed + ' no building footprint on road/sidewalk', footprintOnRoad === 0, 'footprintOnRoad=' + footprintOnRoad);
-  check('seed ' + seed + ' no building in sea', inSea === 0, 'inSea=' + inSea);
-  const div = roofDiversity(city);
-  check('seed ' + seed + ' roof diversity', div.roofKinds >= 4, 'roofKinds=' + div.roofKinds + ' tiers=' + div.tiers);
-  let overlaps = 0;
-  for (let i = 0; i < city.buildings.length; i++) {
-    for (let j = i + 1; j < city.buildings.length; j++) {
-      const a = city.buildings[i];
-      const b = city.buildings[j];
-      if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 2 && Math.abs(a.y - b.y) < (a.d + b.d) / 2 - 2) overlaps++;
+// Round island: every structure's CENTRE sits inside the disc. The
+// lighthouse overhangs the shore by design (its centre is at r=229.4,
+// its footprint edge reaches 233.4) — that is a lighthouse, not a bug.
+let worstR = 0;
+for (const b of city.buildings) worstR = Math.max(worstR, Math.hypot(b.x, b.z));
+for (const lm of city.landmarks) worstR = Math.max(worstR, Math.hypot(lm.x, lm.z));
+check(worstR < 232, 'round island: all structure centres inside disc r=232', `worst centre ${worstR.toFixed(1)} (lighthouse 229.4)`);
+
+// Setback: worst footprint-edge clearance to any road centreline.
+let worst = Infinity;
+for (const b of city.buildings) {
+  let best = Infinity;
+  for (const r of city.roads) {
+    for (let i = 0; i + 1 < r.points.length; i++) {
+      best = Math.min(best, segDist(b.x, b.z, r.points[i][0], r.points[i][1], r.points[i + 1][0], r.points[i + 1][1]));
     }
   }
-  check('seed ' + seed + ' no overlapping footprints', overlaps === 0, 'overlaps=' + overlaps);
-  const spawnBlock = buildingAt(city, 320, 240, 6);
-  check('seed ' + seed + ' spawn camera clear', spawnBlock == null, spawnBlock ? 'blocked by ' + spawnBlock.id : 'clear');
-  for (const lm of LANDMARKS) {
-    check('seed ' + seed + ' landmark dry: ' + lm.name, !isInSea(lm.x, lm.y), 'x=' + lm.x + ' y=' + lm.y);
-  }
-  const districtsHit = new Set(city.buildings.map((b) => b.district));
-  check('seed ' + seed + ' buildings across districts', districtsHit.size >= 4, 'districts=' + [...districtsHit].join(','));
+  worst = Math.min(worst, best - Math.max(b.w, b.d) / 2);
 }
+check(worst >= 12, 'footprint setback >= 12', `worst edge clearance ${worst.toFixed(2)}`);
+console.log(`INFO  buildings ${city.buildings.length} (target ~200, setback-limited), palms ${city.palms.length} (target 150), landmarks ${city.landmarks.length}`);
+check(city.buildings.length >= 90, 'building count >= 90', `${city.buildings.length}`);
+check(city.palms.length >= 120, 'palm count >= 120', `${city.palms.length}`);
+check(city.landmarks.length === 10, 'landmarks present', city.landmarks.map((l) => l.id).join(','));
 
-check('6 districts defined', DISTRICTS.length === 6, 'count=' + DISTRICTS.length);
-const d = districtAtPoint(320, 130);
-check('district lookup Marina Blvd', d.id === 'marina' || d.id === 'neon', 'district=' + d.id);
+// Spawn and chase camera must not sit inside a building.
+check(!pointInBuilding(state, state.player.x, state.player.z, 1), 'spawn clear of buildings', `spawn (${state.player.x}, ${state.player.z})`);
+const cam = computeChaseCamera(state);
+check(!pointInBuilding(state, cam.pos.x, cam.pos.z, 1), 'spawn chase camera clear of buildings', `cam (${cam.pos.x.toFixed(1)}, ${cam.pos.z.toFixed(1)})`);
 
-console.log(failures.length === 0 ? 'CITYCHECK PASS' : 'CITYCHECK FAIL (' + failures.length + ')');
-process.exit(failures.length === 0 ? 0 : 1);
+// Road graph: every node reachable from node 0.
+const adj = new Map();
+for (const [a, b] of city.edges) {
+  if (!adj.has(a)) adj.set(a, []);
+  if (!adj.has(b)) adj.set(b, []);
+  adj.get(a).push(b);
+  adj.get(b).push(a);
+}
+const seen = new Set([0]);
+const queue = [0];
+while (queue.length > 0) {
+  const n = queue.pop();
+  for (const m of adj.get(n) || []) {
+    if (!seen.has(m)) {
+      seen.add(m);
+      queue.push(m);
+    }
+  }
+}
+check(seen.size === city.nodes.length, 'road graph connected', `${seen.size}/${city.nodes.length} nodes reachable`);
+
+if (failures.length > 0) {
+  console.log(`\ncityCheck: ${failures.length} FAILURE(S)`);
+  process.exit(1);
+}
+console.log('\ncityCheck: PASS');

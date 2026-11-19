@@ -1,185 +1,221 @@
-// SOLMAR 3D — police: pursuit, ramming, roadblock, spotlight heli,
-// searching, on-foot cops. FAR spawn via the road graph (never a 60-unit
-// teleport pop-in). Response list data for the HUD. Cops shoot at wanted
-// >= 2, never during missions. Cruiser parked when its cop is on foot.
-import { createRng } from './random.js';
-import { nearestNode, findPath } from './city.js';
+// SOLMAR 3D — police and the wanted system. Wanted escalates: 1 star
+// brings foot officers who arrest, 2+ brings cruisers and foot officers
+// who STOP AND SHOOT in bursts, 4 brings the helicopter, 5 brings
+// roadblocks. Police NEVER shoot during a story mission. Officers spawn
+// far away on the road graph and drive in — never a teleport pop-in.
+// The response list the HUD shows comes from these real units.
+import { POLICE } from './config.js';
+import { clamp, dist2 } from './random.js';
+import { findRoute } from './traffic.js';
+import { damagePlayer } from './combat.js';
 
-export const POLICE_STATES = ['PURSUIT', 'RAMMING', 'ROADBLOCK', 'SPOTLIGHT', 'SEARCHING', 'ON FOOT'];
+const CALLSIGNS = ['PCPD-12', 'PCPD-07', 'PCPD-21', 'PCPD-33', 'PCPD-08', 'PCPD-19', 'PCPD-44', 'PCPD-02'];
+let nextUnitId = 1;
 
-export function createPolice(seed = 1) {
-  return {
-    rng: createRng(seed * 53 + 7),
-    units: [],
-    heli: null,
-    nextId: 12,
-    spawnTimer: 0,
-    searchZone: null,
-    heat: 0,
-  };
+export function createPolice(state) {
+  state.police = { units: [], heli: null, searchZone: null, lastSeen: { x: 0, z: 0 }, hiddenTimer: 0 };
 }
 
-export function wantedForHeat(heat) {
-  if (heat <= 0) return 0;
-  if (heat < 25) return 1;
-  if (heat < 55) return 2;
-  if (heat < 85) return 3;
-  if (heat < 130) return 4;
-  return 5;
+export function raiseWanted(state, amount, reason) {
+  const p = state.player;
+  const before = p.wanted;
+  p.wanted = clamp(p.wanted + amount, 0, POLICE.maxStars);
+  if (p.wanted > before) {
+    state.police.lastSeen = { x: p.x, z: p.z };
+    state.police.hiddenTimer = 0;
+    state.notices.push({ text: `Wanted level ${p.wanted}${reason ? ' — ' + reason : ''}`, ttl: 3 });
+  }
 }
 
-export function spawnUnit(police, city, player, kind) {
-  const rng = police.rng;
-  let farNode = city.nodes[rng.int(0, city.nodes.length - 1)];
-  let farD = -1;
-  for (let i = 0; i < 8; i++) {
-    const cand = city.nodes[rng.int(0, city.nodes.length - 1)];
-    const d = Math.hypot(cand.x - player.x, cand.y - player.y);
-    if (d > farD) {
-      farD = d;
-      farNode = cand;
-    }
+function spawnUnit(state, kind) {
+  const rng = state.rng;
+  const p = state.player;
+  // Spawn on a road 70–110 units away, out of sight, on the graph.
+  let x = p.x;
+  let z = p.z;
+  for (let tries = 0; tries < 8; tries++) {
+    const road = rng.pick(state.city.roads);
+    const pts = road.points;
+    const i = rng.int(0, pts.length - 2);
+    const t = rng.next();
+    x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t;
+    z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t;
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d > 70 && d < 120) break;
   }
   const unit = {
-    id: 'PCPD-' + police.nextId++,
-    kind: kind || 'cruiser',
-    x: farNode.x,
-    y: farNode.y,
-    heading: 0,
-    speed: 0,
-    state: 'PURSUIT',
-    node: farNode.id,
-    path: null,
-    pathIdx: 0,
-    siren: true,
-    lightBar: true,
-    onFoot: false,
-    shootT: 0,
+    id: nextUnitId++, kind, callsign: CALLSIGNS[(nextUnitId - 1) % CALLSIGNS.length],
+    x, z, heading: 0, speed: 0, state: kind === 'foot' ? 'ON FOOT' : 'PURSUIT',
+    node: 0, route: null, routeIdx: 0, burstTimer: rng.range(0.5, 2), shotsInBurst: 0,
+    siren: true, lightBar: true,
   };
-  police.units.push(unit);
+  state.police.units.push(unit);
   return unit;
 }
 
-export function spawnHeli(police, player) {
-  const heli = {
-    id: 'PCPD-AIR1',
-    kind: 'heli',
-    x: player.x + 40,
-    y: player.y - 40,
-    z: 55,
-    heading: 0,
-    speed: 18,
-    state: 'SPOTLIGHT',
-    beamOn: true,
-    beamTarget: { x: player.x, y: player.y },
-    rotor: 0,
-  };
-  police.heli = heli;
-  return heli;
+function wantedUnitCount(wanted) {
+  if (wanted <= 0) return 0;
+  if (wanted === 1) return 2;
+  if (wanted === 2) return 3;
+  if (wanted === 3) return 4;
+  return 5;
 }
 
-export function updatePolice(police, city, player, world, dt) {
-  const wanted = world.wanted;
-  const want = wanted === 0 ? 0 : wanted === 1 ? 1 : wanted === 2 ? 2 : wanted === 3 ? 3 : wanted === 4 ? 4 : 5;
-  police.spawnTimer -= dt;
-  if (police.units.length < want && police.spawnTimer <= 0) {
-    police.spawnTimer = 2.5;
-    spawnUnit(police, city, player, 'cruiser');
+export function stepPolice(state, dt) {
+  const pol = state.police;
+  const p = state.player;
+  const wanted = p.wanted;
+  // Unit count follows wanted; units leave when wanted clears.
+  const want = wantedUnitCount(wanted);
+  while (pol.units.length < want) {
+    const kind = wanted === 1 ? 'foot' : (pol.units.length % 3 === 2 ? 'foot' : 'cruiser');
+    spawnUnit(state, kind);
   }
-  if (wanted >= 3 && !police.heli) {
-    spawnHeli(police, player);
+  if (wanted === 0) {
+    pol.units.length = 0;
+    pol.heli = null;
+    pol.searchZone = null;
+    return;
   }
-  if (wanted < 3) police.heli = null;
-  for (const u of police.units) {
-    const dx = player.x - u.x;
-    const dy = player.y - u.y;
-    const dist = Math.hypot(dx, dy);
-    if (u.state === 'ROADBLOCK') {
-      u.speed = 0;
-      continue;
+  // Helicopter from 4 stars: circles overhead, beam locked on the player.
+  if (wanted >= 4 && !pol.heli) {
+    pol.heli = { x: p.x + 30, z: p.z, y: 42, angle: 0, beam: true };
+  }
+  if (wanted < 4) pol.heli = null;
+  if (pol.heli) {
+    pol.heli.angle += dt * 0.5;
+    pol.heli.x = p.x + Math.cos(pol.heli.angle) * 32;
+    pol.heli.z = p.z + Math.sin(pol.heli.angle) * 32;
+    pol.heli.y = 42;
+  }
+  // Hidden timer: if no unit is close, wanted decays.
+  let nearest = Infinity;
+  for (const u of pol.units) nearest = Math.min(nearest, Math.hypot(u.x - p.x, u.z - p.z));
+  if (nearest > 60) {
+    pol.hiddenTimer += dt;
+    if (pol.hiddenTimer > 20) {
+      p.wanted = Math.max(0, p.wanted - 1);
+      pol.hiddenTimer = 0;
+      if (p.wanted === 0) state.notices.push({ text: 'You lost them. Wanted clear.', ttl: 3 });
+      else state.notices.push({ text: `Heat dropping — wanted level ${p.wanted}.`, ttl: 3 });
     }
-    if (!u.path || u.pathIdx >= u.path.length) {
-      const from = nearestNode(city, u.x, u.y);
-      const dest = nearestNode(city, player.x, player.y);
-      u.path = findPath(city, from.id, dest.id) || [from.id, dest.id];
-      u.pathIdx = 0;
-    }
-    const nextNode = city.nodes[u.path[u.pathIdx]];
-    if (nextNode) {
-      const ndx = nextNode.x - u.x;
-      const ndy = nextNode.y - u.y;
-      const nd = Math.hypot(ndx, ndy);
-      const wantHeading = Math.atan2(ndx, ndy);
-      let dh = wantHeading - u.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
-      u.heading += Math.max(-2.2 * dt, Math.min(2.2 * dt, dh));
-      if (nd < 5) u.pathIdx++;
-    }
-    const topSpeed = u.state === 'RAMMING' ? 26 : 22;
-    u.speed += (topSpeed - u.speed) * Math.min(1, dt * 0.9);
-    u.x += Math.sin(u.heading) * u.speed * dt;
-    u.y += Math.cos(u.heading) * u.speed * dt;
-    if (dist < 12 && u.state === 'PURSUIT') {
-      u.state = 'RAMMING';
-    } else if (dist > 30 && u.state === 'RAMMING') {
-      u.state = 'PURSUIT';
-    }
-    if (wanted >= 4 && dist > 60 && police.rng.chance(dt * 0.05)) {
-      u.state = 'ROADBLOCK';
-    }
-    if (wanted >= 2 && !world.missionActive) {
-      u.shootT -= dt;
-      if (u.shootT <= 0 && dist < 40) {
-        u.shootT = 1.1;
-        u.lastShot = { hit: police.rng.chance(0.12), damage: 6 };
+    if (!pol.searchZone) pol.searchZone = { x: pol.lastSeen.x, z: pol.lastSeen.z, r: POLICE.searchRadius };
+  } else {
+    pol.hiddenTimer = 0;
+    pol.searchZone = null;
+    pol.lastSeen = { x: p.x, z: p.z };
+  }
+  // Drive / run each unit toward the player along the road graph.
+  for (const u of pol.units) {
+    const d = Math.hypot(u.x - p.x, u.z - p.z);
+    if (u.kind === 'cruiser') {
+      if (!u.route || u.routeIdx >= u.route.length) {
+        const from = nearestNodeId(state, u.x, u.z);
+        const to = nearestNodeId(state, p.x, p.z);
+        u.route = findRoute(state.city, from, to);
+        u.routeIdx = 0;
+      }
+      const target = state.city.nodes[u.route[u.routeIdx]];
+      if (target) {
+        const dx = target.x - u.x;
+        const dz = target.z - u.z;
+        const td = Math.hypot(dx, dz);
+        if (td < 5) u.routeIdx += 1;
+        else {
+          const wantHeading = Math.atan2(dx, dz);
+          let dh = wantHeading - u.heading;
+          while (dh > Math.PI) dh -= Math.PI * 2;
+          while (dh < -Math.PI) dh += Math.PI * 2;
+          u.heading += clamp(dh, -dt * 2.2, dt * 2.2);
+          const top = wanted >= 3 ? 34 : 28;
+          u.speed += (top - u.speed) * Math.min(1, dt * 1.5);
+          u.x += Math.sin(u.heading) * u.speed * dt;
+          u.z += Math.cos(u.heading) * u.speed * dt;
+          u.state = d < 14 ? 'RAMMING' : 'PURSUIT';
+        }
+      }
+      // Ramming contact: shove the player's car, or knock the player down.
+      if (d < 3.4) {
+        if (!p.onFoot) {
+          const v = state.vehicles.find((x) => x.id === p.vehicleId);
+          if (v) {
+            v.speed *= 0.6;
+            v.x += (v.x - u.x) * 0.1;
+            v.z += (v.z - u.z) * 0.1;
+          }
+        } else {
+          damagePlayer(state, 12);
+          p.x += (p.x - u.x) * 0.35;
+          p.z += (p.z - u.z) * 0.35;
+        }
+        u.speed *= 0.5;
+      }
+    } else {
+      // Foot officer: run at the player; at wanted >= 2 stop at range
+      // and shoot bursts. Never during a mission. Wanted 1 = arrest only.
+      const inMission = state.missions.active !== null;
+      if (wanted >= POLICE.shootWantedMin && !inMission && d < 42 && d > 6) {
+        u.state = 'SHOOTING';
+        u.burstTimer -= dt;
+        if (u.burstTimer <= 0) {
+          u.burstTimer = 1.6;
+          u.shotsInBurst = 3;
+        }
+        if (u.shotsInBurst > 0) {
+          u.shotsInBurst -= 1;
+          u.burstTimer = Math.max(u.burstTimer, 0.14);
+          damagePlayer(state, 5);
+          state.combat.tracers.push({ x1: u.x, y1: 1.4, z1: u.z, x2: p.x, y2: 1.2, z2: p.z, ttl: 0.12, color: 0xff5040 });
+        }
+      } else if (d > 3) {
+        u.state = 'ON FOOT';
+        const wantHeading = Math.atan2(p.x - u.x, p.z - u.z);
+        let dh = wantHeading - u.heading;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        u.heading += clamp(dh, -dt * 4, dt * 4);
+        u.speed = 6.2;
+        u.x += Math.sin(u.heading) * u.speed * dt;
+        u.z += Math.cos(u.heading) * u.speed * dt;
+        if (wanted === 1 && d < 2.2) {
+          // Arrest: wanted clears, player pays a fine, mission-free.
+          p.wanted = 0;
+          state.player.cash = Math.max(0, state.player.cash - 200);
+          state.notices.push({ text: 'Busted — $200 fine. The PCPD lets you walk.', ttl: 4 });
+          pol.units.length = 0;
+        }
       }
     }
   }
-  if (police.heli) {
-    const h = police.heli;
-    h.rotor += dt * 30;
-    const dx = player.x - h.x;
-    const dy = player.y - h.y;
-    const d = Math.hypot(dx, dy);
-    h.heading = Math.atan2(dx, dy);
-    if (d > 12) {
-      h.x += Math.sin(h.heading) * h.speed * dt;
-      h.y += Math.cos(h.heading) * h.speed * dt;
-    }
-    h.beamTarget = { x: player.x, y: player.y };
-    h.state = 'SPOTLIGHT';
+  // Roadblock at 5 stars: two cruisers park across the road ahead.
+  if (wanted >= 5 && !pol.roadblock) {
+    pol.roadblock = { x: p.x + 40, z: p.z, heading: p.heading };
   }
-  if (wanted === 0) {
-    police.units = [];
-    police.heli = null;
-    police.searchZone = null;
-  } else if (world.heat < 10) {
-    police.searchZone = { x: player.x, y: player.y, r: 45 };
-    for (const u of police.units) u.state = 'SEARCHING';
-  } else {
-    police.searchZone = null;
-  }
-  return police;
+  if (wanted < 5) pol.roadblock = null;
 }
 
-export function responseList(police, player) {
-  const list = [];
-  for (const u of police.units) {
-    const dist = Math.round(Math.hypot(player.x - u.x, player.y - u.y));
-    list.push({ callSign: u.id, distance: dist, state: u.state, kind: u.kind });
+function nearestNodeId(state, x, z) {
+  let best = 0;
+  let bestD = Infinity;
+  for (const n of state.city.nodes) {
+    const d = dist2(x, z, n.x, n.z);
+    if (d < bestD) { bestD = d; best = n.id; }
   }
-  if (police.heli) {
-    const h = police.heli;
-    const dist = Math.round(Math.hypot(player.x - h.x, player.y - h.y));
-    list.push({ callSign: h.id, distance: dist, state: h.state, kind: 'heli' });
-  }
-  return list.slice(0, 5);
+  return best;
 }
 
-export function roadblockAt(police, city, player) {
-  const blockers = police.units.filter((u) => u.state === 'ROADBLOCK');
-  if (blockers.length === 0) return null;
-  const u = blockers[0];
-  return { x: u.x, y: u.y, heading: u.heading, unit: u.id };
+// The HUD response list: real units, real distances, real states.
+export function policeResponse(state) {
+  const p = state.player;
+  const list = state.police.units.map((u) => ({
+    callsign: u.callsign,
+    dist: Math.round(Math.hypot(u.x - p.x, u.z - p.z)),
+    state: u.state,
+    kind: u.kind,
+  }));
+  list.sort((a, b) => a.dist - b.dist);
+  if (state.police.heli) {
+    list.unshift({ callsign: 'AIR-1', dist: Math.round(Math.hypot(state.police.heli.x - p.x, state.police.heli.z - p.z)), state: 'SPOTLIGHT', kind: 'heli' });
+  }
+  return list.slice(0, POLICE.responseUnitsMax);
 }

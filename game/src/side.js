@@ -1,103 +1,108 @@
-// SOLMAR 3D — side activities: taxi fares, respray shop, property
-// purchase, postcard hunting, and the garage store/retrieve loop.
-import { POSTCARDS, PROPERTIES, RESPECT_TIERS } from './data.js';
-import { createRng } from './random.js';
+// SOLMAR 3D — side content. Postcards, the penthouse purchase, the
+// safehouse save point, respawn after death, and the ambient "the city
+// is alive" hooks. A postcard is worth $150 and 5 respect — twenty of
+// them, hidden at the island's best views.
+import { addCash, addRespect, PRICES } from './economy.js';
+import { saveToSlot } from './save.js';
+import { buyPenthouse } from './interiors.js';
 
-export function createSideState(seed = 1) {
-  return {
-    rng: createRng(seed * 61 + 2),
-    taxiActive: false,
-    taxiFare: null,
-    taxiPassenger: null,
-    resprayQueue: [],
-    postcardsFound: new Set(),
-    properties: [],
-    garage: [],
-    garageCapacity: 4,
-  };
+export function createSide(state) {
+  state.postcardsFound = new Set();
+  state.penthouseOwned = false;
+  state.side = { savedAt: null };
 }
 
-export function startTaxiFare(side, player) {
-  const dest = {
-    x: side.rng.range(40, 600),
-    y: side.rng.range(40, 440),
-    name: 'fare drop-off',
-  };
-  side.taxiActive = true;
-  side.taxiFare = {
-    dest,
-    distance: Math.round(Math.hypot(dest.x - player.x, dest.y - player.y)),
-    fare: 0,
-    tip: 0,
-    startedAt: Date.now(),
-  };
-  side.taxiPassenger = { mood: 100, name: 'Passenger' };
-  return side.taxiFare;
-}
-
-export function completeTaxiFare(side, player) {
-  if (!side.taxiActive || !side.taxiFare) return null;
-  const fare = side.taxiFare;
-  const payout = Math.max(40, Math.round(fare.distance * 0.45));
-  const tip = side.taxiPassenger && side.taxiPassenger.mood > 70 ? Math.round(payout * 0.25) : 0;
-  side.taxiActive = false;
-  side.taxiFare = null;
-  side.taxiPassenger = null;
-  return { payout, tip, total: payout + tip };
-}
-
-export function resprayCost(vehicle) {
-  return 350;
-}
-
-export function resprayVehicle(side, vehicle, color) {
-  const cost = resprayCost(vehicle);
-  side.resprayQueue.push({ vehicle: vehicle.def.id, color, cost, done: true });
-  vehicle.paint = color;
-  return { cost, color };
-}
-
-export function buyProperty(side, player, propertyId) {
-  const prop = PROPERTIES.find((p) => p.id === propertyId);
-  if (!prop) return { ok: false, reason: 'unknown-property' };
-  if (side.properties.includes(propertyId)) return { ok: false, reason: 'already-owned' };
-  if (player.cash < prop.price) return { ok: false, reason: 'not-enough-cash', price: prop.price };
-  player.cash -= prop.price;
-  side.properties.push(propertyId);
-  if (prop.id === 'penthouse') player.respect += 150;
-  return { ok: true, property: prop, cashLeft: player.cash };
-}
-
-export function findPostcard(side, player) {
-  for (const pc of POSTCARDS) {
-    if (side.postcardsFound.has(pc.id)) continue;
-    const d = Math.hypot(pc.x - player.x, pc.y - player.y);
-    if (d < 3) {
-      side.postcardsFound.add(pc.id);
-      player.respect += 25;
-      return { found: pc, total: side.postcardsFound.size, of: POSTCARDS.length };
+export function stepSide(state, dt) {
+  const p = state.player;
+  // Postcard pickup: walk over one and it is yours.
+  for (const pc of state.city.postcards) {
+    if (state.postcardsFound.has(pc.id)) continue;
+    const d = Math.hypot(p.x - pc.x, p.z - pc.z);
+    if (d < 2.5) {
+      state.postcardsFound.add(pc.id);
+      addCash(state, 150, `Postcard — ${pc.name}`);
+      addRespect(state, 5);
+      state.audio?.pickup?.();
+      state.notices.push({ text: `Postcard ${state.postcardsFound.size}/20 — ${pc.name} (+$150)`, ttl: 3 });
     }
   }
-  return null;
-}
-
-export function storeInGarage(side, vehicle) {
-  if (side.garage.length >= side.garageCapacity) return { ok: false, reason: 'garage-full' };
-  side.garage.push({ id: vehicle.def.id, condition: vehicle.condition, paint: vehicle.paint || vehicle.def.color });
-  return { ok: true, stored: vehicle.def.id, count: side.garage.length };
-}
-
-export function retrieveFromGarage(side, vehicleId) {
-  const idx = side.garage.findIndex((v) => v.id === vehicleId);
-  if (idx < 0) return { ok: false, reason: 'not-in-garage' };
-  const [v] = side.garage.splice(idx, 1);
-  return { ok: true, vehicle: v, count: side.garage.length };
-}
-
-export function respectTierName(respect) {
-  let name = RESPECT_TIERS[0].name;
-  for (const t of RESPECT_TIERS) {
-    if (respect >= t.min) name = t.name;
+  // Safehouse: save the game.
+  if (p.onFoot) {
+    const d = Math.hypot(p.x - -150, p.z - -20);
+    if (d < 5 && state.side.savedAt !== state.time.day + ':' + Math.floor(state.time.hour)) {
+      // The prompt appears in the HUD via main.js; the save happens on E.
+    }
   }
-  return name;
+  void dt;
+}
+
+export function trySaveAtSafehouse(state) {
+  const p = state.player;
+  const d = Math.hypot(p.x - -150, p.z - -20);
+  if (d < 5 && p.onFoot) {
+    saveToSlot(state, 'main');
+    state.notices.push({ text: 'Game saved at the Safehouse.', ttl: 3 });
+    return true;
+  }
+  return false;
+}
+
+export function tryBuyPenthouse(state) {
+  const p = state.player;
+  const d = Math.hypot(p.x - 0, p.z - -100);
+  if (d < 8 && p.onFoot) {
+    const r = buyPenthouse(state);
+    state.notices.push({ text: r.text, ttl: 4 });
+    return true;
+  }
+  return false;
+}
+
+// Death: respawn at the hospital, keep the cash, lose a little respect
+// for the embarrassment. The mission stays failed, not the save.
+export function respawn(state) {
+  const p = state.player;
+  p.dead = false;
+  p.health = 100;
+  p.armor = 0;
+  p.wanted = 0;
+  p.x = 60;
+  p.z = -100;
+  p.heading = 0;
+  p.onFoot = true;
+  p.vehicleId = null;
+  state.police.units.length = 0;
+  state.police.heli = null;
+  state.enemies.length = 0;
+  if (state.missions.active !== null) {
+    state.missions.active = null;
+    state.missions.marker = null;
+    state.notices.push({ text: 'Mission failed — you woke up in the hospital.', ttl: 4 });
+  }
+  state.notices.push({ text: 'You wake up at Solmar General. The city waits.', ttl: 4 });
+}
+
+// Context prompt for the HUD: what E does right here, right now.
+export function contextPrompt(state) {
+  const p = state.player;
+  if (state.interiors.current) return 'E — use this place  •  Q — leave';
+  if (state.races.active) return null;
+  if (!p.onFoot) {
+    const v = state.vehicles.find((x) => x.id === p.vehicleId);
+    if (v && v.type === 'taxi' && !state.taxi.active) return 'E — start a taxi fare';
+    return 'E — get out';
+  }
+  const nearCar = state.vehicles.some((v) => Math.hypot(p.x - v.x, p.z - v.z) < 4);
+  if (nearCar) return 'E — get in';
+  const nearBoat = state.boats.some((b) => Math.hypot(p.x - b.x, p.z - b.z) < 8);
+  if (nearBoat) return 'E — board the boat';
+  const nearHeli = Math.hypot(p.x - state.heli.x, p.z - state.heli.z) < 5;
+  if (nearHeli) return 'E — fly the helicopter';
+  const nearDoor = Math.hypot(p.x - -40, p.z - 30) < 6;
+  if (nearDoor) return 'E — enter the diner';
+  const nearSafe = Math.hypot(p.x - -150, p.z - -20) < 5;
+  if (nearSafe) return 'E — save at the safehouse';
+  const nearPent = Math.hypot(p.x - 0, p.z - -100) < 8;
+  if (nearPent && !state.penthouseOwned) return `E — buy the Penthouse ($${PRICES.penthouse.toLocaleString('en-US')})`;
+  return null;
 }

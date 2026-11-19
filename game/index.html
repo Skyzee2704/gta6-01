@@ -6,120 +6,24 @@
 <title>SOLMAR 3D — Streets of Gold</title>
 <link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0e12; font-family: 'Segoe UI', system-ui, sans-serif; color: #f2f0e8; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0e12; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #hud-root { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
-  .hidden { display: none !important; }
+  #hud { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: auto; }
+  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  /* ---- HUD ---- */
-  #hud { position: absolute; inset: 0; font-size: 14px; }
-  .hud-panel { background: rgba(26, 24, 34, 0.6); border: 1px solid rgba(255, 210, 122, 0.35); border-radius: 6px; padding: 6px 10px; }
-  #hud-top-left { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; max-width: 380px; }
-  #hud-top-right { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
-  #hud-bottom-left { position: absolute; left: 12px; bottom: 12px; }
-  #hud-bottom-right { position: absolute; right: 12px; bottom: 12px; }
-  #hud-bottom-centre { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); }
-  #hud-centre { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-  #hud-top-centre { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); }
-  .race-board { display: flex; gap: 14px; font-size: 13px; font-weight: 700; color: #f2f0e8; }
-  .race-standings { margin-top: 4px; }
-  .race-row { display: flex; gap: 8px; font-size: 12px; color: #c8c4b8; }
-  .race-row.race-player { color: #ffd27a; font-weight: 700; }
-  .pause-map-wrap { display: flex; gap: 16px; }
-  #pause-map-canvas { width: 620px; height: 465px; border-radius: 6px; flex: none; background: #e8e0d0; }
-  .pause-map-side { flex: 1; min-width: 0; }
-  .map-mission-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13px; }
-  .map-legend-row { font-size: 12px; color: #c8c4b8; padding: 1px 0; }
-  .map-meta { margin-top: 12px; font-size: 12px; color: #ffd27a; line-height: 1.6; }
-  .map-status-done { color: #2ee85c; font-weight: 700; }
-  .map-status-active { color: #ffd27a; font-weight: 700; }
-  .map-status-locked { color: #888; }
-  #hud-clock { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); }
-  .cash { font-size: 26px; font-weight: 800; color: #ffd27a; letter-spacing: 1px; }
-  .star { font-size: 22px; color: #5a5a5a; margin-left: 2px; }
-  .star.filled { color: #ffd27a; }
-  .panel-title { font-size: 11px; letter-spacing: 2px; color: #ffd27a; font-weight: 700; margin-bottom: 4px; }
-  .resp-row { display: flex; gap: 12px; justify-content: space-between; font-size: 13px; }
-  .resp-state { color: #ff6a5e; font-weight: 700; }
-  #hud-weapons { display: flex; gap: 4px; }
-  .wslot { background: rgba(12, 14, 18, 0.72); border: 1px solid rgba(255, 210, 122, 0.35); border-radius: 4px; padding: 4px 8px; font-size: 12px; color: #c8c4b8; }
-  .wslot.active { border-color: #ffd27a; color: #ffd27a; background: rgba(60, 45, 10, 0.8); }
-  .wslot.locked { opacity: 0.45; }
-  .wslot-num { font-weight: 700; margin-right: 4px; color: #ffd27a; }
-  .mission-name { font-size: 17px; font-weight: 800; color: #ffd27a; }
-  .mission-stage { font-size: 13px; color: #fff; }
-  .mission-obj { font-size: 13px; color: #c8c4b8; }
-  .mission-prog { font-size: 12px; color: #ffd27a; }
-  .dlg-speaker { font-size: 13px; font-weight: 800; color: #ffd27a; }
-  .dlg-line { font-size: 14px; font-style: italic; }
-  #hud-dialogue { display: flex; gap: 10px; align-items: flex-start; }
-  .dlg-portrait { width: 64px; height: 64px; flex: 0 0 auto; border-radius: 4px; }
-  .dlg-text { min-width: 0; }
-  #hud-district { position: absolute; left: 12px; bottom: 196px; }
-  .district-name { font-size: 20px; font-weight: 800; color: #ffd27a; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
-  .district-tag { font-size: 13px; color: #f2f0e8; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
-  #hud-radar { border-radius: 50%; border: 2px solid rgba(255, 210, 122, 0.6); background: rgba(12, 14, 18, 0.6); }
-  .veh-name { font-size: 16px; font-weight: 800; color: #ffd27a; }
-  .veh-speed { font-size: 14px; }
-  .veh-cond { width: 180px; height: 6px; background: #333; border-radius: 3px; margin-top: 4px; }
-  .veh-cond-fill { height: 100%; background: #2ee85c; border-radius: 3px; }
-  .radio-station { font-size: 13px; font-weight: 800; color: #ffd27a; }
-  .radio-track { font-size: 13px; }
-  #hud-crosshair { font-size: 26px; color: rgba(255, 255, 255, 0.85); text-shadow: 0 0 4px #000; display: none; }
-  #hud-hitmarker { font-size: 30px; color: #fff; text-shadow: 0 0 6px #000; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-  #hud-hitmarker.kill { color: #ff2e2e; }
-  #hud-chevron { font-size: 22px; color: #ff2e2e; position: absolute; left: 50%; top: 38%; transform: translateX(-50%); }
-  #hud-pause { position: absolute; inset: 60px 120px; background: rgba(10, 12, 16, 0.92); border: 1px solid #ffd27a; border-radius: 8px; padding: 20px; pointer-events: auto; }
-  .hud-pause-tabs { display: flex; gap: 20px; border-bottom: 1px solid #ffd27a; padding-bottom: 8px; margin-bottom: 16px; }
-  .hud-pause-tabs span { cursor: pointer; font-weight: 700; letter-spacing: 2px; color: #c8c4b8; }
-  .hud-pause-tabs span.active { color: #ffd27a; }
-  .pause-complete { font-size: 28px; font-weight: 800; color: #ffd27a; margin-bottom: 12px; }
-  .pause-stats div { padding: 3px 0; }
-  /* ---- Title screen ---- */
-  #title-screen { position: fixed; inset: 0; z-index: 20; background: linear-gradient(180deg, rgba(10,12,16,0.55) 0%, rgba(10,12,16,0.85) 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 20px; }
-  #title-screen h1 { font-size: 54px; margin: 0; color: #ffd27a; letter-spacing: 4px; text-shadow: 0 4px 18px rgba(0,0,0,0.9); }
-  #title-screen h2 { font-size: 18px; margin: 0; color: #f2f0e8; font-weight: 400; letter-spacing: 2px; }
-  #title-story { max-width: 640px; font-size: 15px; font-style: italic; color: #d8d4c8; }
-  #title-cast { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-  .cast-card { width: 128px; }
-  .cast-card canvas { border: 2px solid rgba(255, 210, 122, 0.6); border-radius: 6px; }
-  .cast-name { font-size: 12px; margin-top: 4px; }
-  #title-buttons { display: flex; gap: 12px; margin-top: 8px; }
-  #title-buttons button { font-size: 16px; font-weight: 800; padding: 12px 28px; border-radius: 6px; border: 1px solid #ffd27a; background: #ffd27a; color: #141416; cursor: pointer; letter-spacing: 1px; }
-  #title-buttons button.secondary { background: transparent; color: #ffd27a; }
-  #title-howto { font-size: 13px; color: #c8c4b8; max-width: 640px; line-height: 1.6; }
-  #loading { position: fixed; inset: 0; z-index: 30; background: #0c0e12; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #ffd27a; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js"
+  }
+}
+</script>
 </head>
 <body>
 <canvas id="game" aria-label="SOLMAR 3D: drive, fight and race across a golden-hour beach city"></canvas>
-<div id="hud-root"></div>
-<div id="title-screen" class="hidden">
-  <h1>SOLMAR 3D</h1>
-  <h2>STREETS OF GOLD</h2>
-  <div id="title-story">Milo came to Solmar with empty pockets and a fast car. The city gave him a crew, a war, and a crown to steal.</div>
-  <div id="title-cast"></div>
-  <div id="title-buttons">
-    <button id="btn-continue">CONTINUE</button>
-    <button id="btn-new" class="secondary">NEW GAME</button>
-  </div>
-  <div id="title-howto">WASD drive / walk &middot; E enter car &amp; interact &middot; F shoot &middot; R reload &middot; Q switch weapon &middot; ] / [ radio station &middot; Space handbrake &middot; M map &middot; V top-down view &middot; Esc pause</div>
-</div>
-<div id="loading">Loading Solmar&hellip;</div>
-<div id="status" role="status" aria-live="polite"></div>
-<script src="./vendor/three.min.js"></script>
-<script type="module">
-  import { bootGame } from './src/main.js';
-  const params = new URLSearchParams(location.search);
-  const staging = params.get('staging') === '1';
-  const seed = parseInt(params.get('seed') || '1', 10);
-  const shot = params.get('shot');
-  window.__shotQuery = shot;
-  document.getElementById('loading').remove();
-  bootGame('game', 'hud-root', { seed, staging, shot });
-  if (shot) {
-    setTimeout(() => { window.__shotReady = window.__solmar && window.__solmar.shotReady; }, 500);
-  }
-</script>
+<canvas id="hud" aria-hidden="true"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

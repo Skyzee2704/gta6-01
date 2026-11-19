@@ -1,76 +1,57 @@
-// SOLMAR 3D — record-video: captures REAL gameplay (not AI, not a shot) for
-// the Sky preview (Aturan 30 gate 2). Loads the staging save, clicks
-// CONTINUE, drives with real keyboard input for ~20 s at 8 fps, and encodes
-// the frames to an mp4 with ffmpeg. Fails loud on any page error.
-import { launchBrowser, openGame, startServer, stopServer } from './browser.mjs';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+// record-video — the gameplay preview video, rendered OFFLINE frame
+// by frame. SwiftShader (software GL, no GPU on this VM) renders the
+// live demo at ~2–5 fps, which records as a slideshow, so the
+// recorder drives the demo one fixed step at a time (?demo=1&step=1):
+// each call advances the sim 1/30 s and returns the frame as a JPEG.
+// ffmpeg assembles the frames into a smooth 30 fps mp4. The video is
+// the real game (full 1280x720, shadows on) — only the wall-clock
+// time is fake. Exits 1 if the demo never starts or a frame fails.
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { startServer, launchBrowser, GAME_WIDTH, GAME_HEIGHT } from './browser.mjs';
 
-const PORT = 8905;
-const DURATION_S = 12;
-const FPS = 5;
-const WIDTH = 960;
-const HEIGHT = 540;
-const FRAMES_DIR = join(homedir(), '.cache', 'tmp', 'gta6-01-preview-frames');
-const OUT = join(homedir(), 'workspace', 'makefun', 'gta6-01', 'gta6-01-preview.mp4');
+const FRAMES_DIR = new URL('../video/.frames/', import.meta.url);
+const FPS = 30;
+const SECONDS = 12;
+const TOTAL = FPS * SECONDS;
+const STEP_DT = 1 / FPS;
 
-const failures = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS' : 'FAIL') + ' ' + name + (detail != null ? ' — ' + detail : ''));
-  if (!ok) failures.push(name);
-}
-
-rmSync(FRAMES_DIR, { recursive: true, force: true });
-mkdirSync(FRAMES_DIR, { recursive: true });
-
-let server = null;
-let browser = null;
+const server = await startServer(8901);
+const browser = await launchBrowser();
 try {
-  server = await startServer(PORT);
-  browser = await launchBrowser();
-  const { page, errors, consoleErrors } = await openGame(browser, PORT, 'staging=1&seed=1', WIDTH, HEIGHT);
-  await page.waitForSelector('#btn-continue', { timeout: 30000 });
-  await page.waitForTimeout(800);
-  await page.click('#btn-continue');
-  await page.waitForTimeout(1000);
-  const screen = await page.evaluate(() => window.__solmar.screen);
-  check('game in play', screen === 'play', 'screen=' + screen);
-  check('page loaded without page errors', errors.length === 0, errors.join(' | ').slice(0, 300));
-  check('no console errors', consoleErrors.length === 0, consoleErrors.join(' | ').slice(0, 300));
-
-  // Drive: hold W, steer gently left/right in a slow weave so the city,
-  // traffic and police chase all pass through the frame.
-  await page.keyboard.down('KeyW');
-  const totalFrames = DURATION_S * FPS;
-  for (let i = 0; i < totalFrames; i++) {
-    const t = i / FPS;
-    if (t > 4 && t < 8) await page.keyboard.down('KeyA');
-    else await page.keyboard.up('KeyA');
-    if (t > 12 && t < 16) await page.keyboard.down('KeyD');
-    else await page.keyboard.up('KeyD');
-    await page.screenshot({ path: join(FRAMES_DIR, `frame_${String(i).padStart(3, '0')}.jpg`), type: 'jpeg', quality: 70 });
-    await page.waitForTimeout(1000 / FPS);
+  mkdirSync(FRAMES_DIR, { recursive: true });
+  const context = await browser.newContext({
+    viewport: { width: GAME_WIDTH, height: GAME_HEIGHT },
+    deviceScaleFactor: 1,
+  });
+  const page = await context.newPage();
+  page.on('pageerror', (err) => console.log(`PAGEERROR demo: ${err.message}`));
+  await page.goto(`${server.base}/index.html?demo=1&step=1&seed=1`, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction(() => window.__demoReady === true, null, { timeout: 90000 });
+  console.log(`INFO  demo ready, rendering ${TOTAL} frames (${SECONDS} s at ${FPS} fps)...`);
+  for (let i = 0; i < TOTAL; i++) {
+    const dataUrl = await page.evaluate((dt) => window.__stepDemo(dt), STEP_DT);
+    const base64 = dataUrl.split(',', 2)[1];
+    writeFileSync(new URL(`../video/.frames/frame-${String(i + 1).padStart(4, '0')}.jpg`, import.meta.url), Buffer.from(base64, 'base64'));
+    if ((i + 1) % 60 === 0) console.log(`INFO  frame ${i + 1}/${TOTAL}`);
   }
-  await page.keyboard.up('KeyW');
-  await page.keyboard.up('KeyA');
-  await page.keyboard.up('KeyD');
-  console.log(`captured ${totalFrames} frames`);
+  await context.close();
 } finally {
-  if (browser) await browser.close().catch(() => {});
-  stopServer(server);
+  await browser.close();
+  server.close();
 }
 
-if (failures.length > 0) {
-  console.log('RECORD-VIDEO FAIL — ' + failures.join(', '));
-  process.exit(1);
-}
-
-const ff = spawnSync('ffmpeg', ['-y', '-framerate', String(FPS), '-i', join(FRAMES_DIR, 'frame_%03d.jpg'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', OUT], { encoding: 'utf8' });
-if (ff.status !== 0) {
-  console.log('ffmpeg failed: ' + (ff.stderr || '').slice(-500));
-  process.exit(1);
-}
-console.log('VIDEO OK — ' + OUT);
-console.log('RECORD-VIDEO PASS');
+// Assemble the frames and drop the intermediates.
+// NOTE: the ffmpeg input pattern MUST NOT go through `new URL` —
+// `%04` in a URL is percent-decoded to the 0x04 control byte, so
+// ffmpeg got `frame-<0x04>d.jpg` and failed with "No such file".
+// Build the pattern from the plain directory path instead.
+const framesDir = fileURLToPath(new URL('../video/.frames/', import.meta.url));
+const mp4 = new URL('../video/gameplay.mp4', import.meta.url);
+execFileSync('ffmpeg', ['-y', '-framerate', String(FPS), '-i', `${framesDir}frame-%04d.jpg`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', fileURLToPath(mp4)], { stdio: 'pipe', maxBuffer: 16 * 1024 * 1024 }); // maxBuffer: ffmpeg's progress log exceeds the 1 MiB default and throws ERR_CHILD_PROCESS_STDIO_MAXBUFFER even on success
+rmSync(FRAMES_DIR, { recursive: true, force: true });
+const size = statSync(mp4).size;
+const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fileURLToPath(mp4)], { encoding: 'utf8' }).trim();
+console.log(`INFO  video/gameplay.mp4: ${(size / 1024).toFixed(0)} KiB, ${Number(probe).toFixed(1)} s, ${TOTAL} frames at ${FPS} fps`);
+console.log('\nrecord-video: PASS');

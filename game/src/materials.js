@@ -1,143 +1,82 @@
-// SOLMAR 3D — shared PBR materials: pastel palette, neon emissive, lit
-// windows, asphalt, glass, metal, tire, chrome. Browser only (uses THREE).
-const PASTELS = [
-  0xe8b4b8, 0xf2d8a0, 0xa8d8c8, 0xb8c8e8, 0xe8c8a0,
-  0xd8b8e8, 0xf8e8c8, 0xa8c8a8, 0xe8a0a0, 0x98c8d8,
-  0xd8d8b8, 0xc8b8d8, 0xf0c8a0, 0x88b8c8, 0xe8d8d8,
-];
+// SOLMAR 3D — materials. The look rule is simple: nothing glares.
+// Asphalt is dark and rough, sidewalks are matte, glass is dim — the
+// zebra and the sidewalk never shine in the sun. Neon is the only
+// thing allowed to glow, and only at night. One shared material per
+// surface keeps the draw calls down.
+import * as THREE from 'three';
+import { NEON } from './data.js';
 
 export function createMaterials() {
-  const mats = {};
-  mats.asphalt = new THREE.MeshStandardMaterial({ color: 0x383c3e, roughness: 0.94, metalness: 0.02 });
-  mats.asphaltDark = new THREE.MeshStandardMaterial({ color: 0x232528, roughness: 0.96, metalness: 0.02 });
-  mats.concrete = new THREE.MeshStandardMaterial({ color: 0x9a938a, roughness: 0.9, metalness: 0.0 });
-  mats.sidewalk = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.92, metalness: 0.0 });
-  mats.glass = new THREE.MeshStandardMaterial({ color: 0x9fd8e8, roughness: 0.12, metalness: 0.4, transparent: true, opacity: 0.55 });
-  mats.glassDark = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, roughness: 0.15, metalness: 0.5, transparent: true, opacity: 0.7 });
-  mats.chrome = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.18, metalness: 0.9 });
-  mats.tire = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.95, metalness: 0.0 });
-  mats.metal = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.4, metalness: 0.8 });
-  mats.wood = new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: 0.85, metalness: 0.0 });
-  mats.leaf = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, metalness: 0.0 });
-  mats.trunk = new THREE.MeshStandardMaterial({ color: 0x6a4a2e, roughness: 0.95, metalness: 0.0 });
-  mats.sand = new THREE.MeshStandardMaterial({ color: 0xe0c890, roughness: 0.98, metalness: 0.0 });
-  mats.roof = new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.9, metalness: 0.05 });
-  mats.windowLit = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb35c, emissiveIntensity: 0.9, roughness: 0.4 });
-  mats.windowDark = new THREE.MeshStandardMaterial({ color: 0x2a3542, roughness: 0.3, metalness: 0.4 });
-  mats.windowNight = new THREE.MeshStandardMaterial({ color: 0xffe9a0, emissive: 0xffc85c, emissiveIntensity: 1.2, roughness: 0.4 });
-  mats.neonPink = new THREE.MeshStandardMaterial({ color: 0xff4da6, emissive: 0xff2e88, emissiveIntensity: 1.6, roughness: 0.3 });
-  mats.neonCyan = new THREE.MeshStandardMaterial({ color: 0x4de8ff, emissive: 0x00c8e8, emissiveIntensity: 1.6, roughness: 0.3 });
-  mats.neonGold = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb35c, emissiveIntensity: 1.6, roughness: 0.3 });
-  mats.neonGreen = new THREE.MeshStandardMaterial({ color: 0x7dff8a, emissive: 0x2ee85c, emissiveIntensity: 1.6, roughness: 0.3 });
-  mats.awningRed = new THREE.MeshStandardMaterial({ color: 0xc22e2e, roughness: 0.8, metalness: 0.0 });
-  mats.awningBlue = new THREE.MeshStandardMaterial({ color: 0x2e6fc2, roughness: 0.8, metalness: 0.0 });
-  mats.white = new THREE.MeshStandardMaterial({ color: 0xf2f0e8, roughness: 0.85, metalness: 0.0 });
-  mats.black = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9, metalness: 0.1 });
-  mats.skinTones = [
-    new THREE.MeshStandardMaterial({ color: 0xe8b890, roughness: 0.75 }),
-    new THREE.MeshStandardMaterial({ color: 0xc89066, roughness: 0.75 }),
-    new THREE.MeshStandardMaterial({ color: 0x8a5a3a, roughness: 0.75 }),
-    new THREE.MeshStandardMaterial({ color: 0xf0c8a0, roughness: 0.75 }),
-  ];
-  mats.shirtColors = [
-    new THREE.MeshStandardMaterial({ color: 0xc22e2e, roughness: 0.85 }),
-    new THREE.MeshStandardMaterial({ color: 0x2e6fc2, roughness: 0.85 }),
-    new THREE.MeshStandardMaterial({ color: 0xe0a030, roughness: 0.85 }),
-    new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.85 }),
-    new THREE.MeshStandardMaterial({ color: 0x8e2e6f, roughness: 0.85 }),
-    new THREE.MeshStandardMaterial({ color: 0xf2f0e8, roughness: 0.85 }),
-  ];
-  mats.pantsColors = [
-    new THREE.MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 }),
-    new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.9 }),
-    new THREE.MeshStandardMaterial({ color: 0x6a5a42, roughness: 0.9 }),
-  ];
-  mats.pastels = PASTELS.map(
-    (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.02 }),
-  );
-  mats.pastelAt = function pastelAt(i) {
-    return mats.pastels[((i % PASTELS.length) + PASTELS.length) % PASTELS.length];
+  const std = (color, roughness = 0.9, metalness = 0) =>
+    new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const mats = {
+    asphalt: std(0x35353a, 0.96, 0), // dark asphalt, NEVER blue — light
+    // enough to read as a road under a grazing golden-hour sun (0x232326
+    // rendered as a black void and dragged cover/race luma under 0.35)
+    sidewalk: std(0x6b6a66, 0.95, 0), // matte — no sun glare
+    zebra: std(0xe8e6e0, 0.9, 0),
+    grass: std(0x5a7a48, 0.95, 0), // sunlit golden-hour grass
+    sand: std(0xd8c48f, 0.95, 0),
+    sea: std(0x2a4a68, 0.6, 0.1), // golden-hour sea, warmed by the sky
+    sky: new THREE.MeshBasicMaterial({ color: 0xf2a35e, side: THREE.BackSide, fog: false }),
+    sun: new THREE.MeshBasicMaterial({ color: 0xffd9a0, fog: false }),
+    moon: new THREE.MeshBasicMaterial({ color: 0xe8ecf2, fog: false }),
+    cloud: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, fog: false }),
+    glass: std(0x2a3a44, 0.25, 0.4),
+    concrete: std(0x8a8880, 0.9, 0),
+    palmTrunk: std(0x6a4a2a, 0.95, 0),
+    palmLeaf: std(0x2a6a2a, 0.9, 0),
+    lampPole: std(0x3a3a40, 0.7, 0.4),
+    lampHead: new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xffe9a0, emissiveIntensity: 0.6 }),
+    postcard: new THREE.MeshStandardMaterial({ color: 0xffd34a, emissive: 0xffb82a, emissiveIntensity: 0.8 }),
+    marker: new THREE.MeshBasicMaterial({ color: 0xffd34a, transparent: true, opacity: 0.9 }),
+    windowLit: new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffc060, emissiveIntensity: 0.9 }),
+    windowDark: std(0x2a3040, 0.3, 0.3),
+    roof: std(0x3a3a42, 0.9, 0),
+    crate: std(0x8a6a3a, 0.95, 0),
+    barrier: std(0xd83a2a, 0.8, 0),
+    carBody: std(0xffffff, 0.4, 0.5),
+    carGlass: std(0x1a2430, 0.2, 0.5),
+    wheel: std(0x16161a, 0.95, 0),
+    tireSmoke: new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.4 }),
+    beam: new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.22, depthWrite: false }),
+    blood: std(0x6a0a0a, 0.9, 0),
   };
-  mats.neonAt = function neonAt(i) {
-    const list = [mats.neonPink, mats.neonCyan, mats.neonGold, mats.neonGreen];
-    return list[((i % list.length) + list.length) % list.length];
-  };
+  // One emissive neon material per colour, shared by every sign.
+  mats.neon = {};
+  for (const [name, hex] of Object.entries(NEON)) {
+    mats.neon[name] = new THREE.MeshStandardMaterial({
+      color: hex, emissive: hex, emissiveIntensity: 1.2, roughness: 0.4,
+    });
+  }
   return mats;
 }
 
-export function box(w, h, d, mat) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  return mesh;
-}
+// Building facade palette — five colours, warm and sun-baked, never grey.
+export const FACADE_COLORS = [0xe8d8b8, 0xd8b8a0, 0xc8d8d8, 0xe8c8a8, 0xb8c8b8, 0xd8d8c8, 0xe0b8b8];
 
-// Merge many coloured boxes into ONE geometry (one draw call) with
-// per-vertex colours. Static props, trees, car bodies and character
-// torsos all go through here — it is what keeps the frame under the
-// 100-draw-call budget with 200 buildings, 150 trees and live traffic.
-export function mergeBoxes(parts) {
-  const geos = [];
-  for (const p of parts) {
-    const geo = new THREE.BoxGeometry(p.w, p.h, p.d);
-    const m = new THREE.Matrix4();
-    m.makeRotationFromEuler(new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0));
-    m.setPosition(p.x || 0, p.y || 0, p.z || 0);
-    geo.applyMatrix4(m);
-    const color = new THREE.Color(p.color != null ? p.color : 0xffffff);
-    const count = geo.attributes.position.count;
-    const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      colors[i * 3] = color.r;
-      colors[i * 3 + 1] = color.g;
-      colors[i * 3 + 2] = color.b;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const flat = geo.toNonIndexed();
-    flat.clearGroups();
-    geos.push(flat);
-  }
-  let total = 0;
-  for (const g of geos) total += g.attributes.position.count;
-  const pos = new Float32Array(total * 3);
-  const nor = new Float32Array(total * 3);
-  const col = new Float32Array(total * 3);
-  const uv = new Float32Array(total * 2);
-  let o = 0;
-  for (const g of geos) {
-    const n = g.attributes.position.count;
-    pos.set(g.attributes.position.array, o * 3);
-    nor.set(g.attributes.normal.array, o * 3);
-    col.set(g.attributes.color.array, o * 3);
-    uv.set(g.attributes.uv.array, o * 2);
-    o += n;
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  return out;
-}
-
-export function vertexMaterial() {
-  return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05 });
-}
-
-export function neonVertexMaterial() {
-  return new THREE.MeshBasicMaterial({ vertexColors: true });
-}
-
-export function glowSprite(tex, color, scale) {
-  const mat = new THREE.SpriteMaterial({
-    map: tex,
-    color,
-    transparent: true,
-    opacity: 0.85,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(scale, scale, 1);
-  return sprite;
+// Make a canvas texture with text on it — for building signs and banners.
+// Signs sit flat against the wall, never floating, never inside a wall.
+export function makeTextTexture(text, opts = {}) {
+  const font = opts.font || 'bold 64px Arial, sans-serif';
+  const fg = opts.fg || '#ffffff';
+  const bg = opts.bg || 'rgba(20,16,28,0.92)';
+  const pad = opts.pad || 24;
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = font;
+  const tw = measure.measureText(text).width;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(tw) + pad * 2;
+  canvas.height = 64 + pad * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = font;
+  ctx.fillStyle = fg;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, pad, canvas.height / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }

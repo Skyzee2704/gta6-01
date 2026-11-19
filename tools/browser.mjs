@@ -1,84 +1,66 @@
-// SOLMAR 3D — shared headless-browser helper for the browser gates.
-// Playwright-core + the cached Chromium build, SwiftShader WebGL, local
-// serve.ts. Collects console errors + page errors for fail-loud gates.
-import { chromium } from 'playwright-core';
+// browser.mjs — shared Playwright harness for the browser gates.
+// Serves game/ with the repo's own serve.ts (Node stdlib only) and
+// launches the restored playwright-core (1.65.1) against the cached
+// Chromium. Everything runs on 127.0.0.1; nothing reaches the network.
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
-export function findChromium() {
-  const base = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(base)) return null;
-  const dirs = readdirSync(base).filter((d) => d.startsWith('chromium-') && !d.includes('headless'));
-  dirs.sort().reverse();
-  for (const d of dirs) {
-    const p = join(base, d, 'chrome-linux', 'chrome');
-    if (existsSync(p)) return p;
-  }
-  const shells = readdirSync(base).filter((d) => d.startsWith('chromium_headless_shell-'));
-  shells.sort().reverse();
-  for (const d of shells) {
-    const p = join(base, d, 'chrome-linux', 'headless_shell');
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
+const require = createRequire(import.meta.url);
+const PW_CORE = fileURLToPath(new URL('../../pw/tools/node_modules/playwright-core', import.meta.url));
+const { chromium } = require(PW_CORE);
 
-export async function startServer(port) {
-  const proc = spawn('node', ['serve.ts', '--port', String(port)], {
-    cwd: new URL('..', import.meta.url).pathname,
+export const GAME_WIDTH = 1280;
+export const GAME_HEIGHT = 720;
+
+export async function startServer(port = 8901) {
+  const proc = spawn(process.execPath, ['serve.ts', '--port', String(port)], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const url = `http://127.0.0.1:${port}/health`;
+  const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
+  for (;;) {
     try {
-      const res = await fetch(url);
-      if (res.ok) return proc;
+      const res = await fetch(`${base}/index.html`);
+      if (res.ok) break;
     } catch {
-      // not up yet
+      // Not up yet.
+    }
+    if (Date.now() > deadline) {
+      proc.kill();
+      throw new Error(`serve.ts did not come up on port ${port}`);
     }
     await new Promise((r) => setTimeout(r, 200));
   }
-  proc.kill();
-  throw new Error('serve.ts did not come up on port ' + port);
+  return {
+    base,
+    close() { proc.kill(); },
+  };
 }
 
 export async function launchBrowser() {
-  const executablePath = findChromium();
-  if (!executablePath) throw new Error('no cached Chromium found under ~/.cache/ms-playwright');
-  const browser = await chromium.launch({
-    executablePath,
-    args: [
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-      '--disable-gpu-sandbox',
-      '--mute-audio',
-    ],
+  return chromium.launch({
+    headless: true,
+    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox', '--no-sandbox'],
   });
-  return browser;
 }
 
-export async function openGame(browser, port, query, width = 1280, height = 720) {
-  const page = await browser.newPage({ viewport: { width, height } });
-  const errors = [];
-  const consoleErrors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => {
-    if (m.type() === 'error') consoleErrors.push(m.text());
+export async function openPage(browser, base, query) {
+  const context = await browser.newContext({
+    viewport: { width: GAME_WIDTH, height: GAME_HEIGHT },
+    deviceScaleFactor: 1,
   });
-  const url = `http://127.0.0.1:${port}/index.html?${query}`;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  return { page, errors, consoleErrors };
+  const page = await context.newPage();
+  page.on('pageerror', (err) => {
+    console.log(`PAGEERROR ${query}: ${err.message}`);
+  });
+  await page.goto(`${base}/${query}`, { waitUntil: 'load', timeout: 30000 });
+  return { context, page };
 }
 
-export async function waitShotReady(page, timeoutMs = 30000) {
-  await page.waitForFunction(() => window.__solmar && window.__solmar.shotReady, null, { timeout: timeoutMs });
-}
-
-export function stopServer(proc) {
-  if (proc && !proc.killed) proc.kill();
+// Wait for the shot harness (window.__shotReady) and return its result.
+export async function waitShot(page, timeoutMs = 90000) {
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: timeoutMs });
+  return page.evaluate(() => window.__shotResult);
 }
