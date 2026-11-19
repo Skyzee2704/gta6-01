@@ -1,3 +1,10 @@
+// Story-jobs system for the six jobs in data.js (MISSIONS).
+// stageStart sets up each stage and its targets.
+// stepMissions advances the per-stage state machine.
+// Handles the start, complete, fail, and abandon lifecycle.
+// Cleans up mission entities when a job ends.
+// Awards money, respect, and progression unlocks on completion.
+// Supplies the current mission objective text shown in the HUD.
 import { MISSIONS, RESPECT_LEVELS } from './data.js';
 import { registerSystem, addNotice, say, pushEvent, addMoney, addRespect, addHeat } from './world.js';
 import { spawnVehicle, enterVehicle } from './vehicles.js';
