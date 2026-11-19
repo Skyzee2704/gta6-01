@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLMAR — Streets of Gold</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #14100c; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5efe4; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #mapcanvas { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hud { position: fixed; z-index: 5; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .panel { background: rgba(12,10,8,.72); border: 1px solid rgba(255,176,46,.35); border-radius: 8px; padding: 8px 12px; }
+  #hud-top-right { top: 14px; right: 16px; text-align: right; }
+  #hud-cash { font-size: 28px; font-weight: 800; color: #ffb02e; }
+  #hud-wanted { font-size: 22px; color: #ffd23e; letter-spacing: 3px; }
+  #hud-response { font-size: 12px; color: #f5efe4; white-space: pre-line; margin-top: 6px; }
+  #hud-clock { font-size: 13px; color: #b8ab96; }
+  #hud-respect { font-size: 13px; color: #b8ab96; }
+  #hud-top-left { top: 14px; left: 16px; max-width: 520px; }
+  #hud-mission { font-size: 15px; font-weight: 700; }
+  #hud-mission-timer { font-size: 13px; color: #ffb02e; }
+  #hud-dialogue { top: 96px; left: 16px; max-width: 520px; display: none; }
+  #hud-dialogue-text { font-size: 14px; }
+  #hud-portrait { width: 64px; height: 64px; border-radius: 6px; float: left; margin-right: 10px; }
+  #hud-bottom-left { left: 16px; bottom: 16px; }
+  #minimap { width: 168px; height: 168px; border-radius: 50%; border: 3px solid rgba(255,176,46,.6); background: rgba(12,10,8,.6); }
+  #hud-bottom-right { right: 16px; bottom: 16px; text-align: right; }
+  #hud-weapons { font-size: 13px; color: #f5efe4; }
+  #hud-ammo { font-size: 18px; font-weight: 700; color: #ffb02e; }
+  #hud-weapon-pic { width: 72px; height: 72px; background: rgba(12,10,8,.72); border: 1px solid rgba(255,176,46,.35); border-radius: 8px; }
+  #hud-vehicle { font-size: 14px; font-weight: 600; margin-top: 6px; }
+  #hud-radio { left: 50%; bottom: 18px; transform: translateX(-50%); font-size: 14px; display: none; }
+  #hud-notice { left: 50%; top: 170px; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #2ecc71; display: none; }
+  .screen { position: fixed; inset: 0; z-index: 10; display: none; background: rgba(10,8,6,.82); overflow: auto; }
+  .screen-inner { max-width: 860px; margin: 48px auto; padding: 32px; }
+  .screen h1 { font-size: 52px; margin: 0; color: #ffb02e; letter-spacing: 2px; }
+  .screen h2 { font-size: 20px; color: #f5efe4; margin: 8px 0 20px; }
+  .screen p { font-size: 15px; line-height: 1.55; color: #e8e0d0; }
+  .screen button { pointer-events: auto; font-size: 18px; font-weight: 700; padding: 12px 28px; border: none; border-radius: 8px; background: #ffb02e; color: #14100c; cursor: pointer; margin-right: 12px; }
+  .screen button:hover { background: #ffc95e; }
+  #title-cast { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; }
+  .cast-card { width: 120px; text-align: center; font-size: 12px; color: #b8ab96; }
+  .cast-card canvas { width: 64px; height: 64px; border-radius: 8px; }
+  .controls { font-size: 13px; color: #b8ab96; line-height: 1.8; }
+  #pause-stats { white-space: pre-line; font-size: 14px; line-height: 1.7; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="SOLMAR: an open-world crime game. Drive, steal cars, run missions and outrun the police."></canvas>
+<canvas id="mapcanvas" width="1280" height="720"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div class="hud panel" id="hud-top-right">
+  <div id="hud-cash">$250</div>
+  <div id="hud-wanted">☆☆☆☆☆</div>
+  <div id="hud-clock">Day 1 18:36</div>
+  <div id="hud-respect">Nobody — 0 respect</div>
+  <div id="hud-response"></div>
+</div>
+<div class="hud panel" id="hud-top-left">
+  <div id="hud-mission">FREE ROAM</div>
+  <div id="hud-mission-timer"></div>
+</div>
+<div class="hud panel" id="hud-dialogue">
+  <canvas id="hud-portrait" width="64" height="64"></canvas>
+  <div id="hud-dialogue-text"></div>
+</div>
+<div class="hud" id="hud-bottom-left"><canvas id="minimap" width="168" height="168"></canvas></div>
+<div class="hud panel" id="hud-bottom-right">
+  <canvas id="hud-weapon-pic" width="72" height="72"></canvas>
+  <div id="hud-weapons"></div>
+  <div id="hud-ammo"></div>
+  <div id="hud-vehicle">ON FOOT</div>
+</div>
+<div class="hud panel" id="hud-radio"></div>
+<div class="hud" id="hud-notice"></div>
+
+<div class="screen" id="title">
+  <div class="screen-inner">
+    <h1>SOLMAR</h1>
+    <h2>Streets of Gold — an open-world crime story</h2>
+    <p>A stranger arrives in Solmar with $250, a borrowed pistol and a name to make.
+    Steal cars, run six story jobs for Kane and Rosa, outrun the PCPD, and take the
+    Harbor Cruiser to become King of Solmar.</p>
+    <p id="title-save"></p>
+    <div id="title-cast"></div>
+    <p><button id="title-start">Start game</button></p>
+    <p class="controls">WASD drive / walk (D right, A left) · Mouse look (right is right) · E enter or exit a car · C camera (chase / top-down) ·
+    Click shoot · Q switch weapon · R reload · [ ] radio station · P pause · Space handbrake</p>
+    <p class="controls">How to play: follow the gold marker. Steal a coupe, deliver it to the garage,
+    and the story begins. Wanted stars bring the police — at two stars they get out and shoot.
+    Taxis pay, postcards pay, the penthouse pays every day.</p>
+  </div>
+</div>
+
+<div class="screen" id="pause">
+  <div class="screen-inner">
+    <h1>PAUSED</h1>
+    <h2 id="pause-complete">0% COMPLETE</h2>
+    <p id="pause-stats"></p>
+    <p><button id="pause-resume">Resume</button><button id="pause-quit">Save and quit to title</button></p>
+    <p class="controls">Map · Stats · Story · Settings — all in English, all here.</p>
+  </div>
+</div>
+
+<div class="screen" id="over">
+  <div class="screen-inner">
+    <h1>WASTED</h1>
+    <p>You wake up at the Old Town safehouse. The city is still yours to take — try again.</p>
+    <p><button onclick="location.reload()">Try again</button></p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
