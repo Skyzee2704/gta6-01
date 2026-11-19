@@ -1,331 +1,1201 @@
-// data.js — every table the game reads. Content lives here; logic only
-// executes it. All names are original to Solmar: no Rockstar, GTA, or
-// real-brand names anywhere.
+// Content and tuning tables; rates use seconds and dimensions use world units.
 
-// Six districts. Each has a name, a tagline, an accent color, a palette,
-// and a landmark so it reads differently from across the map.
 export const DISTRICTS = [
   {
-    id: 'marina',
-    name: 'Solmar Marina',
-    tagline: 'Docks, yachts, and deals under the table',
-    accent: '#2ec4b6',
-    palette: ['#e8f4f2', '#bfe3de', '#7fb8ad'],
-    landmark: 'Wooden Pier',
-    bounds: { minX: -320, maxX: -40, minZ: 120, maxZ: 240 },
+    "id": "marina",
+    "name": "Solmar Marina",
+    "tagline": "Docks, yachts, and deals under the table",
+    "color": "#23b6aa",
+    "accent": "#23b6aa",
+    "palette": [
+      "#f3dfbb",
+      "#91cdc5",
+      "#e4b98b"
+    ],
+    "minFloors": 3,
+    "maxFloors": 5,
+    "roofBias": {
+      "flat": 0.65,
+      "gabled": 0.35
+    },
+    "facade": "wood"
   },
   {
-    id: 'old',
-    name: 'Old Solmar',
-    tagline: 'Narrow streets, terracotta roofs, and history',
-    accent: '#e07a3f',
-    palette: ['#f2d8b3', '#e0a866', '#b96a2e'],
-    landmark: "Rosa's Diner",
-    bounds: { minX: -320, maxX: -120, minZ: -40, maxZ: 120 },
+    "id": "old-solmar",
+    "name": "Old Solmar",
+    "tagline": "Narrow streets, terracotta roofs, and history",
+    "color": "#cc7145",
+    "accent": "#cc7145",
+    "palette": [
+      "#b75539",
+      "#e8bf91",
+      "#efe0bb"
+    ],
+    "minFloors": 3,
+    "maxFloors": 7,
+    "roofBias": {
+      "gabled": 0.45,
+      "hipped": 0.35,
+      "mansard": 0.2
+    },
+    "facade": "brick"
   },
   {
-    id: 'neon',
-    name: 'Neon Mile',
-    tagline: 'The night never sleeps here',
-    accent: '#ff2e88',
-    palette: ['#2a0f2e', '#ff2e88', '#7b2fff'],
-    landmark: 'Neon Arch',
-    bounds: { minX: -120, maxX: 120, minZ: -40, maxZ: 120 },
+    "id": "neon-mile",
+    "name": "Neon Mile",
+    "tagline": "The night never sleeps here",
+    "color": "#fa52ad",
+    "accent": "#fa52ad",
+    "palette": [
+      "#30263f",
+      "#704d85",
+      "#eb75b8"
+    ],
+    "minFloors": 4,
+    "maxFloors": 12,
+    "roofBias": {
+      "flat": 0.85,
+      "skillion": 0.15
+    },
+    "facade": "painted-brick"
   },
   {
-    id: 'harbor',
-    name: 'Harbor Docks',
-    tagline: 'Containers, cranes, and nameless cargo',
-    accent: '#f5c518',
-    palette: ['#8a7a4a', '#c9a227', '#5c5340'],
-    landmark: 'Harbor Crane',
-    bounds: { minX: 120, maxX: 320, minZ: -120, maxZ: 120 },
+    "id": "harbor-docks",
+    "name": "Harbor Docks",
+    "tagline": "Containers, cranes, and nameless cargo",
+    "color": "#e9be39",
+    "accent": "#e9be39",
+    "palette": [
+      "#7c8587",
+      "#bdb5a0",
+      "#ceaa46"
+    ],
+    "minFloors": 3,
+    "maxFloors": 6,
+    "roofBias": {
+      "flat": 0.6,
+      "skillion": 0.4
+    },
+    "facade": "metal"
   },
   {
-    id: 'palm',
-    name: 'Palm Heights',
-    tagline: 'Hillside villas, views over the sea',
-    accent: '#3fae5a',
-    palette: ['#d8ecc9', '#8fbf7f', '#3f7a4a'],
-    landmark: 'Hill Viewpoint',
-    bounds: { minX: -320, maxX: 0, minZ: -240, maxZ: -40 },
+    "id": "palm-heights",
+    "name": "Palm Heights",
+    "tagline": "Hillside villas, views over the sea",
+    "color": "#55995d",
+    "accent": "#55995d",
+    "palette": [
+      "#e5dbc4",
+      "#adc397",
+      "#f0e5ce"
+    ],
+    "minFloors": 3,
+    "maxFloors": 5,
+    "roofBias": {
+      "hipped": 0.5,
+      "pyramidal": 0.3,
+      "gabled": 0.2
+    },
+    "facade": "concrete"
   },
   {
-    id: 'downtown',
-    name: 'Downtown',
-    tagline: 'Three glass towers in the heart of the city',
-    accent: '#3fa9f5',
-    palette: ['#cfe8f7', '#7fb8e0', '#2e6da4'],
-    landmark: 'Glass Towers',
-    bounds: { minX: 0, maxX: 320, minZ: -240, maxZ: -40 },
-  },
-];
-
-// Which district a point belongs to (first match wins; default Downtown).
-export function districtAt(x, z) {
-  for (const d of DISTRICTS) {
-    const b = d.bounds;
-    if (x >= b.minX && x < b.maxX && z >= b.minZ && z < b.maxZ) return d;
+    "id": "downtown",
+    "name": "Downtown",
+    "tagline": "Three glass towers in the heart of the city",
+    "color": "#66b8de",
+    "accent": "#66b8de",
+    "palette": [
+      "#50768c",
+      "#86b5c7",
+      "#b5c8d1"
+    ],
+    "minFloors": 12,
+    "maxFloors": 40,
+    "roofBias": {
+      "flat": 1
+    },
+    "facade": "glass"
   }
-  return DISTRICTS[5];
-}
-
-// Eleven vehicles. `top` is top speed (units/s), `accel` is 0-60 feel,
-// `seats` is cosmetic. No real brands: descriptive names only.
-export const VEHICLES = [
-  { model: 'sedan', name: 'Solmar Sedan', top: 42, accel: 20, seats: 4, color: '#b8452e' },
-  { model: 'coupe', name: 'Bay Coupe', top: 46, accel: 24, seats: 2, color: '#2e6da4' },
-  { model: 'suv', name: 'Harbor SUV', top: 40, accel: 18, seats: 5, color: '#3f7a4a' },
-  { model: 'pickup', name: 'Dock Pickup', top: 40, accel: 18, seats: 3, color: '#c9a227' },
-  { model: 'sports', name: 'Vulture GT', top: 54, accel: 30, seats: 2, color: '#ff2e88' },
-  { model: 'taxi', name: 'Solmar Cab', top: 42, accel: 20, seats: 4, color: '#f5c518' },
-  { model: 'van', name: 'Cargo Van', top: 36, accel: 15, seats: 3, color: '#8a8a8a' },
-  { model: 'cruiser', name: 'SPD Cruiser', top: 48, accel: 26, seats: 4, color: '#e8e8e8' },
-  { model: 'scooter', name: 'Pier Scooter', top: 26, accel: 16, seats: 1, color: '#2ec4b6' },
-  { model: 'bike', name: 'Street Bike', top: 44, accel: 26, seats: 1, color: '#222222' },
-  { model: 'bus', name: 'City Bus', top: 32, accel: 12, seats: 12, color: '#3fa9f5' },
 ];
 
-// The models a player can steal and drive (proper cars, not bikes).
-export const CAR_MODELS = ['sedan', 'coupe', 'suv', 'pickup', 'taxi', 'van', 'sports'];
+export const VEHICLE_TYPES = [
+  {
+    "id": "sedan",
+    "name": "Solmar Sedan",
+    "kind": "car",
+    "length": 4.5,
+    "width": 1.8,
+    "height": 1.5,
+    "topSpeed": 30,
+    "accel": 14,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A steady four-door for everyday escapes."
+  },
+  {
+    "id": "coupe",
+    "name": "Solmar Coupe",
+    "kind": "car",
+    "length": 4.2,
+    "width": 1.8,
+    "height": 1.35,
+    "topSpeed": 34,
+    "accel": 16,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A light coupe with quick steering."
+  },
+  {
+    "id": "suv",
+    "name": "Solmar SUV",
+    "kind": "car",
+    "length": 4.8,
+    "width": 2,
+    "height": 1.9,
+    "topSpeed": 28,
+    "accel": 12,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "Tall, heavy, and ready for rough streets."
+  },
+  {
+    "id": "pickup",
+    "name": "Solmar Pickup",
+    "kind": "car",
+    "length": 5.1,
+    "width": 2,
+    "height": 1.8,
+    "topSpeed": 27,
+    "accel": 12,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A work truck with an open cargo bed."
+  },
+  {
+    "id": "sports",
+    "name": "Sports Solmar",
+    "kind": "car",
+    "length": 4.4,
+    "width": 1.95,
+    "height": 1.15,
+    "topSpeed": 46,
+    "accel": 22,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "Low bodywork and fierce acceleration."
+  },
+  {
+    "id": "taxi",
+    "name": "Solmar Cab",
+    "kind": "car",
+    "length": 4.6,
+    "width": 1.85,
+    "height": 1.5,
+    "topSpeed": 30,
+    "accel": 14,
+    "stealable": true,
+    "colors": [
+      "#f3c63c"
+    ],
+    "desc": "A yellow cab ready for paying passengers."
+  },
+  {
+    "id": "van",
+    "name": "Solmar Van",
+    "kind": "car",
+    "length": 5.2,
+    "width": 2,
+    "height": 2.2,
+    "topSpeed": 25,
+    "accel": 10,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A roomy delivery van with a heavy rear axle."
+  },
+  {
+    "id": "cruiser",
+    "name": "SPD Cruiser",
+    "kind": "car",
+    "length": 4.9,
+    "width": 1.95,
+    "height": 1.55,
+    "topSpeed": 36,
+    "accel": 18,
+    "stealable": true,
+    "colors": [
+      "#edf2f4",
+      "#244b83"
+    ],
+    "desc": "A patrol car; cannot be stolen while police occupy it.",
+    "stealableWhenPoliceOccupied": false
+  },
+  {
+    "id": "scooter",
+    "name": "Solmar Scooter",
+    "kind": "bike",
+    "length": 1.9,
+    "width": 0.7,
+    "height": 1.2,
+    "topSpeed": 20,
+    "accel": 9,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "Small wheels for narrow streets."
+  },
+  {
+    "id": "sportbike",
+    "name": "Solmar Sport Bike",
+    "kind": "bike",
+    "length": 2.1,
+    "width": 0.75,
+    "height": 1.15,
+    "topSpeed": 42,
+    "accel": 24,
+    "stealable": true,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A fast motorcycle that rewards careful handling."
+  },
+  {
+    "id": "bus",
+    "name": "Solmar Bus",
+    "kind": "bus",
+    "length": 11,
+    "width": 2.5,
+    "height": 3.1,
+    "topSpeed": 22,
+    "accel": 7,
+    "stealable": false,
+    "colors": [
+      "#b7c5cb",
+      "#803e40",
+      "#253b53",
+      "#dfd6ba"
+    ],
+    "desc": "A locked city bus carrying local passengers."
+  }
+];
 
-// Seven weapons. `damage` is per hit, `range` in units, `rate` is shots
-// per second, `mag` is magazine size. Fists are not a weapon slot: the
-// HUD shows five gun slots and no fists.
 export const WEAPONS = [
-  { id: 'pistol', name: 'Pistol', short: 'Pistol', damage: 18, range: 55, rate: 3.5, mag: 12, price: 0, respect: 0, auto: false },
-  { id: 'smg', name: 'SMG', short: 'SMG', damage: 11, range: 48, rate: 9, mag: 32, price: 850, respect: 1, auto: true },
-  { id: 'rifle', name: 'Rifle VK-47', short: 'Rifle', damage: 26, range: 95, rate: 5, mag: 30, price: 2200, respect: 2, auto: true },
-  { id: 'shotgun', name: 'Shotgun', short: 'Shotgun', damage: 42, range: 30, rate: 1.2, mag: 6, price: 1400, respect: 1, auto: false },
-  { id: 'sniper', name: 'Sniper Longeye 308', short: 'Sniper', damage: 95, range: 160, rate: 0.8, mag: 5, price: 4500, respect: 3, auto: false },
-  { id: 'hook', name: 'Dock Hook', short: 'Hook', damage: 22, range: 2.5, rate: 1.8, mag: 0, price: 300, respect: 0, auto: false, melee: true },
-  { id: 'molotov', name: 'Solmar Cocktail', short: 'Cocktail', damage: 35, range: 22, rate: 1, mag: 0, price: 250, respect: 0, auto: false, thrown: true },
+  {
+    "id": "pistol",
+    "name": "Pistol",
+    "damage": 34,
+    "fireRate": 3,
+    "magSize": 12,
+    "reserveMax": 120,
+    "range": 55,
+    "price": 0,
+    "respectLevel": 1,
+    "desc": "A reliable sidearm."
+  },
+  {
+    "id": "smg",
+    "name": "Street SMG",
+    "damage": 18,
+    "fireRate": 10,
+    "magSize": 30,
+    "reserveMax": 240,
+    "range": 45,
+    "price": 500,
+    "respectLevel": 2,
+    "desc": "Fast bursts for close street fights."
+  },
+  {
+    "id": "shotgun",
+    "name": "Pump Shotgun",
+    "damage": 12,
+    "fireRate": 1,
+    "magSize": 8,
+    "reserveMax": 64,
+    "range": 25,
+    "price": 750,
+    "respectLevel": 2,
+    "desc": "Eight pellets per shell.",
+    "pellets": 8
+  },
+  {
+    "id": "rifle",
+    "name": "VK-47 Longshoreman",
+    "damage": 45,
+    "fireRate": 6,
+    "magSize": 30,
+    "reserveMax": 180,
+    "range": 110,
+    "price": 1200,
+    "respectLevel": 3,
+    "desc": "A hard-hitting automatic rifle."
+  },
+  {
+    "id": "sniper",
+    "name": "Longeye 308",
+    "damage": 150,
+    "fireRate": 0.7,
+    "magSize": 5,
+    "reserveMax": 30,
+    "range": 240,
+    "price": 2000,
+    "respectLevel": 5,
+    "desc": "A long-range precision rifle."
+  },
+  {
+    "id": "molotov",
+    "name": "Solmar Cocktail",
+    "damage": 25,
+    "fireRate": 0.8,
+    "magSize": 1,
+    "reserveMax": 12,
+    "range": 25,
+    "price": 150,
+    "respectLevel": 2,
+    "desc": "Burning fuel deals 25 damage per second.",
+    "damagePerSecond": 25,
+    "damageMode": "per-second"
+  },
+  {
+    "id": "melee",
+    "name": "Dock Hook",
+    "damage": 25,
+    "fireRate": 1.5,
+    "magSize": 1,
+    "reserveMax": 0,
+    "range": 2,
+    "price": 0,
+    "respectLevel": 1,
+    "desc": "A close-range hook from the waterfront."
+  }
 ];
 
-// The five HUD weapon slots, in order. No fists slot.
-export const HUD_SLOTS = ['pistol', 'smg', 'rifle', 'shotgun', 'sniper'];
-
-// Four synth radio stations. Each has its own tempo, root note, wave,
-// and a playlist of fictional tracks. `pattern` is the drum pattern
-// (1 = kick, 2 = snare, 0 = rest) over 16 steps.
-export const RADIO = [
+export const RADIO_STATIONS = [
   {
-    id: 'street',
-    name: 'SOLMAR STREET 95.7',
-    show: 'Fuego Latino',
-    bpm: 94,
-    root: 55,
-    wave: 'sawtooth',
-    pattern: [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-    tracks: [
-      { title: 'Marina Nights', artist: 'Los Delfines' },
-      { title: 'Calle Ocho', artist: 'Rosa y el Mar' },
-      { title: 'Fuego Lento', artist: 'DJ Palma' },
-    ],
+    "id": "golden-wave",
+    "name": "SOLMAR 88.5 Golden Wave",
+    "freq": 88.5,
+    "genre": "Soul and soft rock",
+    "bpm": 96,
+    "rootNotes": [
+      48,
+      53,
+      55,
+      60
+    ]
   },
   {
-    id: 'shoreline',
-    name: 'SHORELINE 101.3',
-    show: 'Tide FM',
-    bpm: 100,
-    root: 65,
-    wave: 'sine',
-    pattern: [1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 1, 0],
-    tracks: [
-      { title: 'Low Tide', artist: 'The Breakers' },
-      { title: 'Salt Air', artist: 'Marina Blue' },
-      { title: 'Pier Lights', artist: 'Coastline' },
-    ],
+    "id": "street",
+    "name": "SOLMAR STREET 95.7 Fuego Latino",
+    "freq": 95.7,
+    "genre": "Latin dance",
+    "bpm": 108,
+    "rootNotes": [
+      45,
+      50,
+      52,
+      57
+    ]
   },
   {
-    id: 'golden',
-    name: 'SOLMAR 88.5',
-    show: 'Golden Wave',
-    bpm: 80,
-    root: 49,
-    wave: 'triangle',
-    pattern: [1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 0, 0],
-    tracks: [
-      { title: 'Golden Hour', artist: 'Solmar Sunset' },
-      { title: 'West Coast', artist: 'The Palms' },
-      { title: 'Amber Sky', artist: 'Luna Mar' },
-    ],
+    "id": "tide",
+    "name": "SHORELINE 101.3 Tide FM",
+    "freq": 101.3,
+    "genre": "Coastal chill",
+    "bpm": 82,
+    "rootNotes": [
+      48,
+      52,
+      55,
+      59
+    ]
   },
   {
-    id: 'pulse',
-    name: 'PULSE SOLMAR 104.9',
-    show: 'Neon Club',
-    bpm: 122,
-    root: 58,
-    wave: 'square',
-    pattern: [1, 0, 1, 0, 2, 0, 1, 0, 1, 0, 1, 0, 2, 0, 1, 1],
-    tracks: [
-      { title: 'Neon Drive', artist: 'Vanta Ray' },
-      { title: 'Midnight Mile', artist: 'Club Neon' },
-      { title: 'Electric Palm', artist: 'DJ Volt' },
-    ],
-  },
+    "id": "pulse",
+    "name": "PULSE SOLMAR 104.9 Neon Club",
+    "freq": 104.9,
+    "genre": "Electronic dance",
+    "bpm": 128,
+    "rootNotes": [
+      45,
+      48,
+      52,
+      55
+    ]
+  }
 ];
 
-// The cast. Six people, each with a role and a look the portrait
-// renderer draws from.
-export const CAST = [
-  { id: 'milo', name: 'Milo Cruz', role: 'Getaway driver', look: 'yellow jacket, dark hair' },
-  { id: 'rosa', name: 'Rosa Delgado', role: 'Garage + diner owner', look: 'red bandana, warm smile' },
-  { id: 'kane', name: 'Kane', role: 'Boss of The Vultures', look: 'leather jacket, chain' },
-  { id: 'juno', name: 'Juno', role: 'Wheelwoman', look: 'pink hair, aviator glasses' },
-  { id: 'mags', name: 'Mags', role: 'Fixer', look: 'flat cap, mustache' },
-  { id: 'benning', name: 'Sergeant Benning', role: 'SPD, corrupt cop', look: 'police uniform, cap' },
-];
-
-// Six story jobs. `payout` and `respect` are the completion rewards.
-// `blurb` is the English briefing the player reads.
 export const MISSIONS = [
   {
-    id: 1,
-    title: 'First Wheels',
-    blurb: "Pick up Rosa's car at the pier and bring it to the garage. Don't make a scene.",
-    payout: 450,
-    respect: 150,
-    start: { x: -260, z: 200 },
-    target: { x: -180, z: 60 },
+    "id": 1,
+    "title": "First Wheels",
+    "blurb": "Pick up Rosa's car at the pier and bring it to the garage. Don't make a scene.",
+    "payout": 200,
+    "giver": "rosa",
+    "giverLine": "Milo. My car's at the pier. Grab it, bring it here. Don't make a scene.",
+    "stages": [
+      {
+        "kind": "pickup-car",
+        "target": "pier",
+        "detail": {
+          "vehicle": "sedan"
+        },
+        "text": "Get into Rosa's car at the pier."
+      },
+      {
+        "kind": "deliver-garage",
+        "target": "garage",
+        "detail": {
+          "vehicle": "mission-car"
+        },
+        "text": "Bring the car to the garage."
+      }
+    ]
   },
   {
-    id: 2,
-    title: 'Getaway Driver',
-    blurb: "Drive Rosa's friend out of the police cordon, then lose the cops.",
-    payout: 650,
-    respect: 200,
-    start: { x: -260, z: 200 },
-    target: { x: 120, z: -160 },
-  },
-  {
-    id: 3,
-    title: 'The Collector',
-    blurb: 'Grab 3 packages in Marina, Neon Mile, and Harbor Docks before the 240 seconds run out.',
-    payout: 850,
-    respect: 250,
-    start: { x: -260, z: 200 },
-    targets: [{ x: -260, z: 200 }, { x: 200, z: 40 }, { x: 280, z: -40 }],
-  },
-  {
-    id: 4,
-    title: 'Vulture Trouble',
-    blurb: 'The Vultures hit the garage. Hold 2 waves, then chase their car.',
-    payout: 1050,
-    respect: 300,
-    start: { x: -180, z: 60 },
-    target: { x: -140, z: 100 },
-  },
-  {
-    id: 5,
-    title: 'The Big Score',
-    blurb: 'Steal the sports car from the guarded lot, deliver it to the buyer in Palm Heights.',
-    payout: 1450,
-    respect: 400,
-    start: { x: 200, z: 40 },
-    target: { x: -200, z: -180 },
-  },
-  {
-    id: 6,
-    title: 'King of Solmar',
-    blurb: 'Pick up the crew, rob the vault truck in Harbor Docks, escape a 4-star wanted level to the safehouse.',
-    payout: 1750,
-    respect: 500,
-    start: { x: 260, z: 40 },
-    target: { x: -260, z: 190 },
-  },
-];
-
-// Street-race routes. Each is a loop of checkpoints the rivals race.
-export const RACE_ROUTES = {
-  marina: {
-    name: 'Marina Sprint',
-    checkpoints: [
-      { x: -260, z: 200 },
-      { x: -120, z: 200 },
-      { x: 40, z: 200 },
-      { x: 120, z: 120 },
-      { x: 120, z: 40 },
-      { x: -40, z: 40 },
-      { x: -200, z: 120 },
+    "id": 2,
+    "title": "Getaway Driver",
+    "blurb": "Drive Rosa's friend out of the police cordon, then lose the cops.",
+    "payout": 350,
+    "giver": "rosa",
+    "giverLine": "Get Juno out of the cordon. Cops everywhere \u2014 don't panic.",
+    "dialogue": [
+      {
+        "speaker": "juno",
+        "text": "Go, Milo. I've got the map."
+      }
     ],
+    "stages": [
+      {
+        "kind": "pickup-juno",
+        "target": "juno",
+        "detail": {
+          "passengers": 1
+        },
+        "text": "Pick up Juno."
+      },
+      {
+        "kind": "exit-cordon",
+        "target": "cordon-exit",
+        "detail": {
+          "wantedLevel": 2
+        },
+        "text": "Drive beyond the police cordon."
+      },
+      {
+        "kind": "lose-wanted",
+        "target": "city",
+        "detail": {
+          "wantedLevel": 0
+        },
+        "text": "Lose the cops."
+      }
+    ]
   },
-  neon: {
-    name: 'Neon Loop',
-    checkpoints: [
-      { x: -120, z: 40 },
-      { x: 40, z: 40 },
-      { x: 120, z: 40 },
-      { x: 120, z: -40 },
-      { x: 40, z: -40 },
-      { x: -120, z: -40 },
+  {
+    "id": 3,
+    "title": "The Collector",
+    "blurb": "Grab 3 packages in Marina, Neon Mile, and Harbor Docks before the 240 seconds run out.",
+    "payout": 500,
+    "giver": "mags",
+    "giverLine": "Three pickups. Keep moving and bring every package back.",
+    "timeLimit": 240,
+    "stages": [
+      {
+        "kind": "collect",
+        "target": "marina",
+        "detail": {
+          "package": 1
+        },
+        "text": "Collect the package in Solmar Marina."
+      },
+      {
+        "kind": "collect",
+        "target": "neon-mile",
+        "detail": {
+          "package": 2
+        },
+        "text": "Collect the package in Neon Mile."
+      },
+      {
+        "kind": "collect",
+        "target": "harbor-docks",
+        "detail": {
+          "package": 3
+        },
+        "text": "Collect the package in Harbor Docks."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Vulture Trouble",
+    "blurb": "The Vultures hit the garage. Hold 2 waves, then chase their car.",
+    "payout": 750,
+    "giver": "rosa",
+    "giverLine": "They're at the garage! Hold them off, Milo!",
+    "dialogue": [
+      {
+        "speaker": "kane",
+        "text": "Cruz. You should never have come back to Solmar."
+      }
     ],
+    "stages": [
+      {
+        "kind": "defend",
+        "target": "garage",
+        "detail": {
+          "wave": 1,
+          "enemies": 4
+        },
+        "text": "Defend the garage: wave 1."
+      },
+      {
+        "kind": "defend",
+        "target": "garage",
+        "detail": {
+          "wave": 2,
+          "enemies": 6
+        },
+        "text": "Defend the garage: wave 2."
+      },
+      {
+        "kind": "chase",
+        "target": "vulture-car",
+        "detail": {
+          "disableVehicle": true
+        },
+        "text": "Stop the fleeing Vulture car."
+      }
+    ]
   },
-  harbor: {
-    name: 'Harbor Run',
-    checkpoints: [
-      { x: 200, z: 40 },
-      { x: 280, z: 40 },
-      { x: 280, z: -120 },
-      { x: 200, z: -120 },
-      { x: 120, z: -40 },
+  {
+    "id": 5,
+    "title": "The Big Score",
+    "blurb": "Steal the sports car from the guarded lot, deliver it to the buyer in Palm Heights.",
+    "payout": 1000,
+    "giver": "juno",
+    "giverLine": "That sports car is in the Harbor lot. Take it quiet, deliver it to Palm Heights.",
+    "timeLimit": 180,
+    "stages": [
+      {
+        "kind": "steal-sports",
+        "target": "harbor-lot",
+        "detail": {
+          "vehicle": "sports"
+        },
+        "text": "Steal the guarded sports car."
+      },
+      {
+        "kind": "deliver",
+        "target": "palm-heights-buyer",
+        "detail": {
+          "vehicle": "mission-car"
+        },
+        "text": "Deliver the sports car to the buyer."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "title": "King of Solmar",
+    "blurb": "Pick up the crew, rob the vault truck in Harbor Docks, escape a 4-star wanted level to the safehouse.",
+    "payout": 1500,
+    "giver": "rosa",
+    "giverLine": "Here it is, Milo. The vault truck in Harbor Docks. Hold the cops off for 12 seconds.",
+    "dialogue": [
+      {
+        "speaker": "kane",
+        "text": "You won't leave this city alive."
+      }
     ],
+    "timeLimit": 300,
+    "stages": [
+      {
+        "kind": "pickup-crew",
+        "target": "garage",
+        "detail": {
+          "crew": [
+            "rosa",
+            "juno"
+          ]
+        },
+        "text": "Pick up the crew."
+      },
+      {
+        "kind": "crack-vault",
+        "target": "harbor-vault-truck",
+        "detail": {
+          "holdSeconds": 12,
+          "wantedLevel": 4
+        },
+        "text": "Hold off the cops for 12 seconds."
+      },
+      {
+        "kind": "escape-wanted-4",
+        "target": "safehouse",
+        "detail": {
+          "initialWantedLevel": 4,
+          "requiredWantedLevel": 0
+        },
+        "text": "Escape the four-star pursuit and reach the safehouse."
+      }
+    ]
+  }
+];
+
+export const CAST = [
+  {
+    "id": "milo",
+    "name": "Milo Cruz",
+    "role": "Getaway driver",
+    "skin": "#bc825c",
+    "hair": "short",
+    "hairColor": "#35271f",
+    "feature": "Yellow jacket",
+    "jacketColor": "#edc640"
   },
-};
-
-// The three named rivals. Original names — never the rank-1 names.
-export const RACE_RIVALS = [
-  { name: 'Neri Flint', color: '#ff2e88' },
-  { name: 'Zella Coil', color: '#2ec4b6' },
-  { name: 'Ivo Switch', color: '#f5c518' },
+  {
+    "id": "rosa",
+    "name": "Rosa Delgado",
+    "role": "Garage + diner owner",
+    "skin": "#bf875f",
+    "hair": "tied-back",
+    "hairColor": "#39251f",
+    "feature": "Red bandana",
+    "jacketColor": "#865c42"
+  },
+  {
+    "id": "kane",
+    "name": "Kane",
+    "role": "Boss of The Vultures",
+    "skin": "#a87554",
+    "hair": "slicked-back",
+    "hairColor": "#191817",
+    "feature": "Leather jacket and chain",
+    "jacketColor": "#222329"
+  },
+  {
+    "id": "juno",
+    "name": "Juno",
+    "role": "Wheelwoman",
+    "skin": "#d6a17d",
+    "hair": "bob",
+    "hairColor": "#f477b6",
+    "feature": "Pink hair and aviator glasses",
+    "jacketColor": "#3b6470"
+  },
+  {
+    "id": "mags",
+    "name": "Mags",
+    "role": "Fixer",
+    "skin": "#aa7655",
+    "hair": "short",
+    "hairColor": "#4b352a",
+    "feature": "Hat and mustache",
+    "jacketColor": "#6e7153"
+  },
+  {
+    "id": "benning",
+    "name": "Sergeant Benning",
+    "role": "SPD, corrupt cop",
+    "skin": "#d0a07c",
+    "hair": "cropped",
+    "hairColor": "#6b5140",
+    "feature": "Police uniform and cap",
+    "jacketColor": "#263f65"
+  }
 ];
 
-// Street names for signs and the map.
-export const STREETS = [
-  'Marina Boulevard', 'Pier Street', 'Old Town Road', 'Terracotta Lane',
-  'Neon Avenue', 'Harbor Way', 'Crane Street', 'Palm Drive',
-  'Hilltop Road', 'Tower Street', 'Sunset Strip', 'Bayfront Road',
+export const STREET_NAMES = [
+  "Marina Boulevard",
+  "Palm Row",
+  "Neon Strip",
+  "Harbor Road",
+  "Dockside Avenue",
+  "Sunset Lane",
+  "Coral Street",
+  "Anchor Way",
+  "Vista Drive",
+  "Market Street",
+  "Pier Road",
+  "Tower Plaza"
 ];
 
-// Shop brands for signs.
-export const BRANDS = [
-  'SOLMAR MART', 'PIER CAFE', 'NEON HOTEL', 'HARBOR SUPPLY',
-  'PALM GROCERY', 'TOWER BANK', 'ROSA\'S DINER', 'HARBOR ARMS',
-  'SUNSET MOTEL', 'BAY BURGERS', 'CRANE MOTORS', 'TIDE SURF SHOP',
+export const BRAND_NAMES = [
+  "Anchor Supply",
+  "Coral Coffee",
+  "Goldfinch Records",
+  "Nightglass Tattoo",
+  "Seabreeze Market",
+  "Copper Kettle Diner",
+  "Driftline Garage",
+  "Bright Tide Clothing",
+  "Blue Gull Fish",
+  "Crane Yard Tools",
+  "Velvet Current Club",
+  "Palm Crown Bar"
 ];
 
-// Fictional tape (collectible) titles.
+export const HOTEL_NAMES = [
+  "The Lantern Hotel",
+  "Silver Shore Hotel",
+  "Crown Reef Hotel",
+  "The Lookout Inn",
+  "Harbor Light Hotel",
+  "Golden Gull Lodge",
+  "The Glass Harbor",
+  "Palm Crest Hotel",
+  "The Boardwalk Inn",
+  "Moonlit Bay Hotel"
+];
+
 export const TAPE_TITLES = [
-  'Midnight at the Pier', 'Neon Rain', 'Harbor Lights', 'Palm Shadows',
-  'The Last Ferry', 'Calle Luna', 'Salt and Smoke', 'Tower Fall',
-  'Golden Getaway', 'Vulture Song', 'Marina Blues', 'Old Town Waltz',
-  'Cranes at Dawn', 'Sunset Strip', 'The Fixer', 'Wheelwoman',
-  'Corrupt Badge', 'Empire Rising', 'Streets of Gold', 'King of Solmar',
+  "First Light at the Pier",
+  "The Last Ferry",
+  "Neon After Midnight",
+  "Letters from the Harbor",
+  "A Driver Comes Home",
+  "Rain on Market Street",
+  "The Empty Penthouse",
+  "Footsteps on the Boardwalk",
+  "Under the Crane",
+  "The Garage Radio",
+  "Two Tickets North",
+  "Salt on the Wind",
+  "A Window Above Town",
+  "The Long Way Back",
+  "Headlights in the Fog",
+  "The Diner at Dawn",
+  "A Promise by the Sea",
+  "The Quiet Cordon",
+  "Gold Beneath the Glass",
+  "One More Sunset"
 ];
 
-// Respect ranks (names, not just levels).
-export const RESPECT_RANKS = ['Fresh Out', 'Small Time', 'Known Face', 'Heavy Hitter', 'Solmar Royalty'];
+export const PROPERTIES = [
+  {
+    "id": "safehouse",
+    "name": "Safehouse",
+    "price": 0,
+    "garageSlots": 1
+  },
+  {
+    "id": "penthouse",
+    "name": "Palm Heights Penthouse",
+    "price": 15000,
+    "garageSlots": 2,
+    "income": 500
+  }
+];
 
-// Roof shapes for the procedural building generator.
-export const ROOF_TYPES = ['flat', 'gabled', 'hipped', 'mansard', 'pyramidal', 'skillion'];
+export const RESPECT_LEVELS = [
+  {
+    "level": 1,
+    "at": 0,
+    "unlocks": [
+      "Pistol",
+      "Dock Hook"
+    ]
+  },
+  {
+    "level": 2,
+    "at": 100,
+    "unlocks": [
+      "Street SMG",
+      "Pump Shotgun",
+      "Solmar Cocktail"
+    ]
+  },
+  {
+    "level": 3,
+    "at": 300,
+    "unlocks": [
+      "VK-47 Longshoreman"
+    ]
+  },
+  {
+    "level": 4,
+    "at": 600,
+    "unlocks": [
+      "Palm Heights Penthouse"
+    ]
+  },
+  {
+    "level": 5,
+    "at": 1000,
+    "unlocks": [
+      "Longeye 308"
+    ]
+  }
+];
 
-// Facade materials per district.
-export const FACADE_MATERIALS = {
-  marina: ['plaster', 'wood', 'glass'],
-  old: ['brick', 'plaster', 'terracotta'],
-  neon: ['concrete', 'glass', 'neon'],
-  harbor: ['metal', 'concrete', 'brick'],
-  palm: ['plaster', 'wood', 'glass'],
-  downtown: ['glass', 'concrete', 'metal'],
+export const ROOF_TYPES = [
+  {
+    "id": "flat",
+    "heightFactor": 0.08,
+    "overhang": 0.15
+  },
+  {
+    "id": "gabled",
+    "heightFactor": 0.5,
+    "overhang": 0.45,
+    "pitch": 0.5
+  },
+  {
+    "id": "hipped",
+    "heightFactor": 0.45,
+    "overhang": 0.4,
+    "pitch": 0.45
+  },
+  {
+    "id": "mansard",
+    "heightFactor": 0.6,
+    "overhang": 0.3,
+    "pitch": 0.6
+  },
+  {
+    "id": "pyramidal",
+    "heightFactor": 0.55,
+    "overhang": 0.35,
+    "pitch": 0.55
+  },
+  {
+    "id": "skillion",
+    "heightFactor": 0.35,
+    "overhang": 0.3,
+    "pitch": 0.35
+  }
+];
+
+export const FACADE_MATERIALS = [
+  {
+    "district": "marina",
+    "material": "wood",
+    "color": "#f3dfbb",
+    "roughness": 0.8
+  },
+  {
+    "district": "old-solmar",
+    "material": "brick",
+    "color": "#b75539",
+    "roughness": 0.9
+  },
+  {
+    "district": "neon-mile",
+    "material": "painted-brick",
+    "color": "#30263f",
+    "roughness": 0.75
+  },
+  {
+    "district": "harbor-docks",
+    "material": "metal",
+    "color": "#7c8587",
+    "roughness": 0.65
+  },
+  {
+    "district": "palm-heights",
+    "material": "concrete",
+    "color": "#e5dbc4",
+    "roughness": 0.85
+  },
+  {
+    "district": "downtown",
+    "material": "glass",
+    "color": "#50768c",
+    "roughness": 0.18
+  }
+];
+
+export const STREET_FURNITURE = [
+  {
+    "kind": "hydrant",
+    "districts": [
+      "marina",
+      "old-solmar",
+      "neon-mile",
+      "harbor-docks",
+      "palm-heights",
+      "downtown"
+    ],
+    "density": 0.15
+  },
+  {
+    "kind": "bench",
+    "districts": [
+      "marina",
+      "old-solmar",
+      "palm-heights",
+      "downtown"
+    ],
+    "density": 0.3
+  },
+  {
+    "kind": "trash-bin",
+    "districts": [
+      "marina",
+      "old-solmar",
+      "neon-mile",
+      "harbor-docks",
+      "palm-heights",
+      "downtown"
+    ],
+    "density": 0.35
+  },
+  {
+    "kind": "awning",
+    "districts": [
+      "old-solmar",
+      "neon-mile",
+      "marina"
+    ],
+    "density": 0.5
+  },
+  {
+    "kind": "utility-box",
+    "districts": [
+      "downtown",
+      "harbor-docks",
+      "neon-mile"
+    ],
+    "density": 0.2
+  },
+  {
+    "kind": "bus-stop",
+    "districts": [
+      "downtown",
+      "old-solmar",
+      "neon-mile",
+      "harbor-docks"
+    ],
+    "density": 0.12
+  },
+  {
+    "kind": "planter",
+    "districts": [
+      "palm-heights",
+      "downtown",
+      "marina"
+    ],
+    "density": 0.4
+  }
+];
+
+export const SIGN_TEXTS = {
+  "marina": [
+    "Anchor Supply",
+    "Blue Gull Fish",
+    "The Boardwalk Inn",
+    "PIER",
+    "FISH"
+  ],
+  "old-solmar": [
+    "Coral Coffee",
+    "Seabreeze Market",
+    "Copper Kettle Diner",
+    "Driftline Garage",
+    "DINER",
+    "GARAGE",
+    "MARKET"
+  ],
+  "neon-mile": [
+    "Goldfinch Records",
+    "Nightglass Tattoo",
+    "Velvet Current Club",
+    "The Lookout Inn",
+    "TATTOO",
+    "CLUB",
+    "NEON"
+  ],
+  "harbor-docks": [
+    "Anchor Supply",
+    "Crane Yard Tools",
+    "Harbor Light Hotel",
+    "CARGO",
+    "WAREHOUSE"
+  ],
+  "palm-heights": [
+    "Bright Tide Clothing",
+    "Palm Crown Bar",
+    "Palm Crest Hotel",
+    "Moonlit Bay Hotel",
+    "HOTEL",
+    "BAR"
+  ],
+  "downtown": [
+    "The Lantern Hotel",
+    "Silver Shore Hotel",
+    "Crown Reef Hotel",
+    "Golden Gull Lodge",
+    "The Glass Harbor",
+    "MARKET",
+    "HOTEL"
+  ]
 };
 
-// Street furniture kinds.
-export const FURNITURE = ['hydrant', 'bench', 'bin', 'awning', 'busStop', 'kiosk', 'billboard', 'umbrella', 'lounger', 'surfboard'];
-
-// Tree kinds.
 export const TREE_TYPES = [
-  { id: 'palm', name: 'Palm', height: 9, leaf: '#3fae5a' },
-  { id: 'oak', name: 'City Oak', height: 7, leaf: '#2e7a3a' },
-  { id: 'pine', name: 'Hill Pine', height: 11, leaf: '#1f5c2e' },
+  {
+    "id": "palm",
+    "height": [
+      5,
+      8
+    ],
+    "leafColor": "#388959",
+    "districts": [
+      "marina",
+      "neon-mile",
+      "palm-heights"
+    ]
+  },
+  {
+    "id": "oak",
+    "height": [
+      4,
+      7
+    ],
+    "leafColor": "#527e42",
+    "districts": [
+      "old-solmar",
+      "downtown"
+    ]
+  },
+  {
+    "id": "pine",
+    "height": [
+      5,
+      9
+    ],
+    "leafColor": "#315e48",
+    "districts": [
+      "palm-heights",
+      "harbor-docks"
+    ]
+  }
+];
+
+export const LAMP_TYPES = [
+  {
+    "id": "modern",
+    "districts": [
+      "downtown"
+    ],
+    "height": 6,
+    "glow": "warm"
+  },
+  {
+    "id": "classic",
+    "districts": [
+      "old-solmar"
+    ],
+    "height": 5.5,
+    "glow": "warm"
+  },
+  {
+    "id": "harbor",
+    "districts": [
+      "harbor-docks",
+      "marina"
+    ],
+    "height": 7,
+    "glow": "warm"
+  }
+];
+
+export const RACE_ROUTES = [
+  {
+    "id": "marina-sprint",
+    "name": "Marina Sprint",
+    "checkpoints": 8,
+    "reward": 300
+  },
+  {
+    "id": "neon-loop",
+    "name": "Neon Loop",
+    "checkpoints": 6,
+    "reward": 500
+  },
+  {
+    "id": "harbor-run",
+    "name": "Harbor Run",
+    "checkpoints": 10,
+    "reward": 800
+  }
+];
+
+export const WEATHER_TYPES = [
+  "clear",
+  "cloudy",
+  "rain"
+];
+
+export const WEATHER_DURATIONS = {
+  "clear": {
+    "minSeconds": 60,
+    "maxSeconds": 120,
+    "transitionSeconds": 10
+  },
+  "cloudy": {
+    "minSeconds": 60,
+    "maxSeconds": 120,
+    "transitionSeconds": 10
+  },
+  "rain": {
+    "minSeconds": 60,
+    "maxSeconds": 120,
+    "transitionSeconds": 10
+  }
+};
+
+export const CRIME_HEAT = [
+  {
+    "crime": "theft",
+    "heat": 1
+  },
+  {
+    "crime": "assault",
+    "heat": 2
+  },
+  {
+    "crime": "shooting",
+    "heat": 3
+  },
+  {
+    "crime": "cop-killed",
+    "heat": 4
+  }
 ];

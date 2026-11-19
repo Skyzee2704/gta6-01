@@ -1,84 +1,36 @@
-// random.js — deterministic randomness for the sim.
-// Everything the sim rolls comes from a seeded generator, so the same seed
-// always builds the same city, the same traffic, the same missions. The
-// renderer never touches this; it uses its own stateless hash so drawing
-// cannot disturb the sim's roll order.
-
-// Mulberry32: a small, fast, well-distributed seeded PRNG.
+// Integer arithmetic keeps procedural generation repeatable across runtimes.
 export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), state | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-// A stateful RNG with the helpers the sim uses everywhere.
-export class RNG {
-  constructor(seed) {
-    this.next = mulberry32(seed);
-  }
-  // Float in [0, 1).
-  float() {
-    return this.next();
-  }
-  // Float in [min, max).
-  range(min, max) {
-    return min + this.next() * (max - min);
-  }
-  // Integer in [min, max] inclusive.
-  int(min, max) {
-    return Math.floor(this.next() * (max - min + 1)) + min;
-  }
-  // Pick one element of an array.
-  pick(arr) {
-    return arr[Math.floor(this.next() * arr.length)];
-  }
-  // True with probability p.
-  chance(p) {
-    return this.next() < p;
-  }
+function mix32(value) {
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
+  return (value ^ (value >>> 16)) >>> 0;
 }
 
-// Squared distance between two points on the ground plane. The sim uses
-// squared distances for cheap range checks and takes the root only when
-// it needs a real distance.
-export function dist2(x0, z0, x1, z1) {
-  const dx = x1 - x0;
-  const dz = z1 - z0;
-  return dx * dx + dz * dz;
+export function hash2(x, y) {
+  return mix32(Math.imul(x | 0, 0x1f123bb5) ^ Math.imul(y | 0, 0x5f356495)) / 4294967296;
 }
 
-// Real distance on the ground plane.
-export function dist(x0, z0, x1, z1) {
-  return Math.sqrt(dist2(x0, z0, x1, z1));
+export function hashString(s) {
+  let value = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    value = Math.imul(value ^ s.charCodeAt(i), 16777619);
+  }
+  return mix32(value) / 4294967296;
 }
 
-// Clamp a value into [min, max].
-export function clamp(v, min, max) {
-  return v < min ? min : v > max ? max : v;
-}
-
-// Linear interpolation.
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-// Wrap an angle into (-PI, PI].
-export function wrapAngle(a) {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a <= -Math.PI) a += Math.PI * 2;
-  return a;
-}
-
-// Stateless hash of a 2D point: the same (x, z) always gives the same
-// value in [0, 1). The renderer uses this for per-building variation
-// without touching the sim RNG.
-export function hash2(x, z) {
-  let h = (Math.floor(x * 12.9898) * 374761393 + Math.floor(z * 78.233) * 668265263) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
+export const randomRange = (rng, a, b) => a + rng() * (b - a);
+export const randomInt = (rng, a, b) => Math.floor(randomRange(rng, Math.ceil(a), Math.floor(b) + 1));
+export const randomPick = (rng, arr) => arr[randomInt(rng, 0, arr.length - 1)];
+export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+export const lerp = (a, b, t) => a + (b - a) * t;
+// Squared distance on the ground plane; avoids a square root in proximity checks.
+export const dist2 = (ax, az, bx, bz) => (bx - ax) ** 2 + (bz - az) ** 2;

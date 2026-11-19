@@ -1,120 +1,13 @@
-// save.js — save and load through localStorage.
-// One key, one JSON blob, defensive load: a corrupt or partial save never
-// crashes the game, it just starts fresh. Lifetime stats live here too,
-// so the pause screen can show them after a reload.
-
-import { SAVE_KEY } from './config.js';
-
-// Read the storage object, tolerating a missing window (Node) or a
-// missing localStorage. Returns null when there is nothing usable.
-function storage() {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage || null;
-  } catch {
-    return null;
-  }
+import { CONFIG } from './config.js';
+const SAVE_KEY=CONFIG.SAVE_KEY;
+const memory=Object.create(null);
+function storage(){return typeof localStorage==='undefined'?{setItem:(k,v)=>{memory[k]=v;},getItem:k=>memory[k]??null}:localStorage;}
+const copy=v=>JSON.parse(JSON.stringify(v));
+export function saveGame(w){try{const data={money:w.money,respect:w.respect,respectLevel:w.respectLevel,missionIndex:w.mission.index,completed:w.mission.completed,unlocked:w.mission.unlocked,properties:w.properties,garage:w.garage,races:w.save?.races||{},day:w.day,time:w.time,player:{x:w.player.x,z:w.player.z,health:w.player.health}};storage().setItem(SAVE_KEY,JSON.stringify(data));return true;}catch{return false;}}
+export function loadGame(){try{const data=JSON.parse(storage().getItem(SAVE_KEY));return data&&typeof data==='object'&&!Array.isArray(data)?data:null;}catch{return null;}}
+export function applySave(w,data){if(!data||typeof data!=='object')return false;const d=copy(data);for(const k of ['money','respect','respectLevel','day','time'])if(Number.isFinite(d[k]))w[k]=d[k];
+  if(Number.isInteger(d.missionIndex))w.mission.index=d.missionIndex;if(Array.isArray(d.completed))w.mission.completed=d.completed;if(Number.isInteger(d.unlocked))w.mission.unlocked=d.unlocked;
+  if(d.properties&&typeof d.properties==='object')Object.assign(w.properties,d.properties);if(d.garage)for(const slot of ['safehouse','penthouse'])if(Array.isArray(d.garage[slot]))w.garage[slot]=d.garage[slot];
+  w.save={races:d.races&&typeof d.races==='object'?d.races:{}};for(const k of ['x','z','health'])if(Number.isFinite(d.player?.[k]))w.player[k]=d.player[k];w.flags.incomeDay=w.day;return true;
 }
-
-// The fields that persist. Everything else (positions, traffic, cops)
-// is rebuilt fresh on load.
-export function snapshot(state) {
-  return {
-    version: 1,
-    money: state.money,
-    respect: state.respect,
-    day: state.day,
-    hour: state.hour,
-    missionDone: [...state.mission.done],
-    missionUnlocked: state.mission.unlocked,
-    tapesFound: state.tapesFound,
-    penthouse: state.properties.penthouse,
-    garage: [...state.garage],
-    weaponsOwned: { ...state.weapons.owned },
-    weaponsAmmo: { ...state.weapons.ammo },
-    raceBest: { ...state.race.best },
-    stats: { ...state.stats },
-    player: {
-      x: state.player.x,
-      z: state.player.z,
-      heading: state.player.heading,
-      health: state.player.health,
-    },
-  };
-}
-
-// Write the current state to the save slot. Returns true on success.
-export function saveGame(state) {
-  const store = storage();
-  if (!store) return false;
-  try {
-    store.setItem(SAVE_KEY, JSON.stringify(snapshot(state)));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Load the save slot into the state. Returns true when a save was found
-// and applied, false when there is nothing to load (fresh game).
-export function loadGame(state) {
-  const store = storage();
-  if (!store) return false;
-  let raw = null;
-  try {
-    raw = store.getItem(SAVE_KEY);
-  } catch {
-    return false;
-  }
-  if (!raw) return false;
-  let data = null;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    return false;
-  }
-  if (!data || typeof data !== 'object' || data.version !== 1) return false;
-  // Defensive: each field is applied only when it has the right shape.
-  if (typeof data.money === 'number') state.money = data.money;
-  if (typeof data.respect === 'number') state.respect = data.respect;
-  if (typeof data.day === 'number') state.day = data.day;
-  if (typeof data.hour === 'number') state.hour = data.hour;
-  if (Array.isArray(data.missionDone) && data.missionDone.length === 6) {
-    state.mission.done = data.missionDone.map(Boolean);
-  }
-  if (typeof data.missionUnlocked === 'number') state.mission.unlocked = data.missionUnlocked;
-  if (typeof data.tapesFound === 'number') state.tapesFound = data.tapesFound;
-  if (data.penthouse === true) state.properties.penthouse = true;
-  if (Array.isArray(data.garage)) state.garage = data.garage.filter((v) => typeof v === 'number');
-  if (data.weaponsOwned && typeof data.weaponsOwned === 'object') {
-    Object.assign(state.weapons.owned, data.weaponsOwned);
-  }
-  if (data.weaponsAmmo && typeof data.weaponsAmmo === 'object') {
-    Object.assign(state.weapons.ammo, data.weaponsAmmo);
-  }
-  if (data.raceBest && typeof data.raceBest === 'object') {
-    Object.assign(state.race.best, data.raceBest);
-  }
-  if (data.stats && typeof data.stats === 'object') {
-    Object.assign(state.stats, data.stats);
-  }
-  if (data.player && typeof data.player === 'object') {
-    if (typeof data.player.x === 'number') state.player.x = data.player.x;
-    if (typeof data.player.z === 'number') state.player.z = data.player.z;
-    if (typeof data.player.heading === 'number') state.player.heading = data.player.heading;
-    if (typeof data.player.health === 'number') state.player.health = data.player.health;
-  }
-  return true;
-}
-
-// Remove the save slot (used by "New Game" after confirming).
-export function clearSave() {
-  const store = storage();
-  if (!store) return false;
-  try {
-    store.removeItem(SAVE_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}
+export function saveSummary(d){if(!d)return null;return {job:(d.missionIndex??0)+1,money:d.money??0,day:d.day??1,time:d.time??12};}

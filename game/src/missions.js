@@ -1,247 +1,42 @@
-// missions.js — the story engine. Six jobs as data, one state machine.
-// Each job has stages; the engine watches the player's position, the
-// wanted level, and the enemies, and advances the stage. Completing a
-// job pays out, grants respect, and unlocks the next one. Failing (death,
-// arrest, or the timer) blows the job — the player can retry it.
-
-import { MISSIONS } from './data.js';
-import { dist2 } from './random.js';
-import { spawnEnemies, aliveEnemies } from './combat.js';
-import { addMoney, addRespect } from './economy.js';
-import { say } from './dialogue.js';
-import { findPath } from './city.js';
-
-// Fresh mission state. `done` is one slot per job; `unlocked` is how
-// many jobs the player can start (job 1 is open from the start).
-export function createMissionState() {
-  return {
-    id: 0,
-    active: false,
-    stage: 0,
-    done: [false, false, false, false, false, false],
-    unlocked: 1,
-    timer: 0,
-    timerMax: 0,
-    holdT: 0,
-    holdMax: 0,
-    targets: [],
-    collected: 0,
-    wave: 0,
-    failed: false,
-    failReason: '',
-  };
+import { MISSIONS, RESPECT_LEVELS } from './data.js';
+import { registerSystem, addNotice, say, pushEvent, addMoney, addRespect, addHeat } from './world.js';
+import { spawnVehicle, enterVehicle } from './vehicles.js';
+import { spawnEnemy } from './combat.js';
+import { nearestNode } from './city.js';
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+const kind=s=>({'deliver-garage':'deliver','pickup-juno':'pickup-person','pickup-crew':'pickup-person','steal-sports':'steal-car','escape-wanted-4':'escape'}[s.kind]||s.kind);
+function location(w,target){const aliases={'juno':'garage','cordon-exit':'garage','palm-heights-buyer':'penthouse','harbor-lot':'harbor-crane','harbor-vault-truck':'harbor-crane','vulture-car':'garage'};target=aliases[target]||target;return w.city.spawn[target]||w.city.landmarks.find(l=>l.id===target||l.kind===target)||(()=>{const d=w.city.districts.find(d=>d.id===target);return d?nearestNode(w.city,(d.x0+d.x1)/2,(d.z0+d.z1)/2):w.city.spawn.garage;})();}
+function car(w,a,type,pos){const v=spawnVehicle(w,type,pos.x,pos.z,0,{missionId:a.id,parked:true});return v;}
+function stageStart(w){const a=w.mission.active,s=a.stages[a.stageIndex],k=kind(s),pos=location(w,s.target);a.stage=s;s.timer=0;s.progress=0;s.lastVehicleId=w.player.vehicleId;s.position={x:pos.x,z:pos.z};s.targets=[];
+  if(k==='pickup-car'||k==='steal-car'){const v=car(w,a,s.detail.vehicle||'sedan',pos);a.vehicleId=v.id;s.vehicleId=v.id;s.targets.push(v.id);if(k==='steal-car')for(let i=0;i<3;i++){const e=spawnEnemy(w,pos.x+8+i*4,pos.z-8,{weapon:'smg'});if(e){e.missionId=a.id;s.targets.push(e.id);}}}
+  if(k==='deliver')s.vehicleId=a.vehicleId;
+  if(k==='pickup-person'){const names=s.detail.crew||[s.target==='juno'?'juno':s.detail.npc||s.target];s.people=names.map((name,i)=>{let n=w.npcs.find(n=>n.id===name);if(!n){n={id:name,x:pos.x+i,z:pos.z,health:100,dead:false,state:'idle',idleT:1e9,missionId:a.id};w.npcs.push(n);}return {...n};});s.targets=s.people.map(n=>n.id);}
+  if(k==='exit-cordon'){s.center={...pos};s.radius=s.detail.radius||90;addHeat(w,Math.max(0,(s.detail.wantedLevel||2)-w.heat),'mission');}
+  if(k==='collect'){const districts=s.detail.districts||[s.target];s.packages=districts.map((d,i)=>{const p=location(w,d),item={id:`package-${a.id}-${a.stageIndex}-${i}`,kind:'package',x:p.x,z:p.z,title:'Cargo package',taken:false,missionId:a.id};w.pickups.push(item);return item.id;});s.targets=[...s.packages];}
+  if(k==='defend'){s.wave=1;spawnWave(w,s);}
+  if(k==='chase'){const p=nearestNode(w.city,pos.x,pos.z),v=car(w,a,'coupe',p);v.driver='mission';s.vehicleId=v.id;s.node=p.id;s.nextNode=w.city.graph[p.id].edges[0];s.targets=[v.id];}
+  if(k==='crack-vault'){const v=car(w,a,'van',pos);s.vehicleId=v.id;s.targets=[v.id];addHeat(w,Math.max(0,(s.detail.wantedLevel||1)-w.heat),'vault');}
+  if(k==='escape'){addHeat(w,Math.max(0,(s.detail.initialWantedLevel||4)-w.heat),'escape');s.reachedFour=w.wanted>=4;}
 }
-
-// Start a job. Sets up its stage, targets, and opening dialogue.
-// Any job can be started directly (the tests start each job on a fresh
-// world); the title screen enforces the unlock order for real play.
-export function startMission(state, id) {
-  const def = MISSIONS[id - 1];
-  if (!def) return false;
-  const m = state.mission;
-  m.id = id;
-  m.active = true;
-  m.stage = 0;
-  m.failed = false;
-  m.failReason = '';
-  m.timer = 0;
-  m.timerMax = id === 3 ? 240 : 0;
-  m.holdT = 0;
-  m.holdMax = 0;
-  m.collected = 0;
-  m.wave = 0;
-  m.targets = def.targets ? def.targets.map((t) => ({ ...t, done: false })) : [];
-  // A sports car waits at the lot for job 5.
-  if (id === 5) {
-    const near = state.vehicles.some((v) => v.model === 'sports' && dist2(v.x, v.z, 200, 40) < 30 * 30);
-    if (!near) {
-      state.vehicles.push({
-        id: state.nextVehicleId++,
-        model: 'sports',
-        x: 200,
-        z: 40,
-        heading: 0,
-        speed: 0,
-        parked: true,
-        driver: null,
-        health: 100,
-        smoke: 0,
-        steer: 0,
-        color: '#ff2e88',
-      });
-    }
-  }
-  if (state.notices) state.notices.push(`Job ${id}: ${def.title} — ${def.blurb}`);
-  const opener = {
-    1: ['Rosa Delgado', "Milo. My car's at the pier. Grab it, bring it here. Don't make a scene."],
-    2: ['Rosa Delgado', "Get Juno out of the cordon. Cops everywhere — don't panic."],
-    3: ['Rosa Delgado', 'Three packages, three districts. Fast, Milo.'],
-    4: ['Kane', 'Cruz. You should never have come back to Solmar.'],
-    5: ['Juno', 'That sports car is in the Harbor lot. Take it quiet, deliver it to Palm Heights.'],
-    6: ['Rosa Delgado', 'Here it is, Milo. The vault truck in Harbor Docks. Hold the cops off for 12 seconds.'],
-  }[id];
-  if (opener) say(state, opener[0], opener[1]);
-  return true;
+function spawnWave(w,s){const a=w.mission.active,p=s.position;s.targets=[];for(let i=0;i<(s.detail.enemies||4);i++){const angle=i*Math.PI*2/(s.detail.enemies||4),e=spawnEnemy(w,p.x+Math.cos(angle)*20,p.z+Math.sin(angle)*20,{weapon:s.wave>1?'rifle':'pistol'});if(e){e.missionId=a.id;s.targets.push(e.id);}}if((s.detail.wave||s.wave)>1)addNotice(w,`Wave ${s.detail.wave||s.wave}!`);}
+export function startMission(w,idx){if(!Number.isInteger(idx)||idx<0||idx>=w.mission.unlocked||!MISSIONS[idx]||w.mission.active||!w.city)return false;const data=MISSIONS[idx];w.mission.results=null;w.mission.index=idx;w.mission.active={id:data.id,stageIndex:0,timer:0,stats:{shots:w.stats.shots,hits:w.stats.hits,kills:w.stats.kills,crashes:w.stats.crashes},startTime:w.elapsed,data,stages:data.stages.map(s=>({...s,detail:{...s.detail}})),packages:0};stageStart(w);say(w,data.giver,data.giverLine);addNotice(w,`Job ${data.id}: ${data.title} — ${data.blurb}`);pushEvent(w,'mission-start',{id:data.id});return true;}
+function cleanup(w,id){w.enemies=w.enemies.filter(e=>e.missionId!==id);w.pickups=w.pickups.filter(p=>p.missionId!==id);w.npcs=w.npcs.filter(n=>n.missionId!==id);w.vehicles=w.vehicles.filter(v=>v.missionId!==id||v.id===w.player.vehicleId);for(const v of w.vehicles)if(v.missionId===id)delete v.missionId;}
+export function completeMission(w){const a=w.mission.active;if(!a)return;const shots=w.stats.shots-a.stats.shots,hits=w.stats.hits-a.stats.hits,respect=40+20*a.id,results={title:a.data.title,payout:a.data.payout,respect,time:w.elapsed-a.startTime,accuracy:shots?Math.min(1,hits/shots):0,takedowns:w.stats.kills-a.stats.kills,crashes:w.stats.crashes-a.stats.crashes,topSpeed:w.stats.topSpeed,unlocks:MISSIONS[a.id]?[MISSIONS[a.id].title]:[]};addMoney(w,results.payout);const previousLevel=w.respectLevel;addRespect(w,respect);for(const level of RESPECT_LEVELS)if(level.level>previousLevel&&level.level<=w.respectLevel)results.unlocks.push(...level.unlocks);if(!w.mission.completed.includes(a.id))w.mission.completed.push(a.id);w.mission.unlocked=Math.min(MISSIONS.length,Math.max(w.mission.unlocked,a.id+1));w.mission.results=results;cleanup(w,a.id);w.mission.active=null;w.stats.missionsDone++;addNotice(w,`JOB COMPLETE: ${results.title} +$${results.payout} +${respect} respect`);pushEvent(w,'mission-complete',results);if(a.id===6){addNotice(w,'EMPIRE: King of Solmar! Free roam open, every job replayable.');say(w,'rosa','You built a home here, Milo. Take a breath and enjoy the city.');}}
+export function failMission(w,reason){const a=w.mission.active;if(!a)return;cleanup(w,a.id);w.mission.active=null;addNotice(w,'JOB BLOWN: '+reason);pushEvent(w,'mission-failed',{reason});}
+export function abandonMission(w){if(!w.mission.active)return;const a=w.mission.active;cleanup(w,a.id);w.mission.active=null;addNotice(w,'Job abandoned. Free roam.');pushEvent(w,'mission-failed',{reason:'Job abandoned.'});}
+export function missionObjectiveText(w){const a=w.mission.active;return a?`Job ${a.id}: ${a.data.title} — ${a.stages[a.stageIndex].text}`:'Free roam — press M for map, E near a car to get in';}
+export function stepMissions(w,input,dt){const a=w.mission.active;if(!a)return;const s=a.stages[a.stageIndex],k=kind(s),p=w.player;a.timer+=dt;s.timer+=dt;if(p.dead||p.busted){failMission(w,p.dead?'The crew lost its driver.':'The police caught the driver.');return;}if((s.detail.timeLimit&&s.timer>s.detail.timeLimit)||(a.data.timeLimit&&a.timer>a.data.timeLimit)){failMission(w,"Time's up.");return;}let done=false;const v=w.vehicles.find(v=>v.id===s.vehicleId);
+  if(['pickup-car','steal-car','deliver','chase','crack-vault'].includes(k)&&!v){if(k==='chase')done=true;else {failMission(w,'The target vehicle was lost.');return;}}
+  if(k==='pickup-car'||k==='steal-car')done=p.vehicleId===s.vehicleId;
+  if(k==='deliver')done=p.vehicleId===s.vehicleId&&distance(p,s.position)<10;
+  if(k==='pickup-person'){const vehicle=w.vehicles.find(v=>v.id===(p.vehicleId||s.lastVehicleId));done=!!vehicle&&distance(p,vehicle)<6&&!!input.pressed?.enter&&s.people.every(n=>distance(n,vehicle)<4);if(p.vehicleId)s.lastVehicleId=p.vehicleId;if(done){if(p.onFoot)enterVehicle(w,vehicle);a.vehicleId=vehicle.id;for(const line of a.data.dialogue||[])say(w,line.speaker,line.text);}}
+  if(k==='exit-cordon')done=distance(p,s.center)>s.radius;
+  if(k==='lose-wanted')done=w.wanted===0;
+  if(k==='collect'){for(const item of w.pickups)if(s.packages.includes(item.id)&&!item.taken&&distance(p,item)<3){item.taken=true;a.packages++;addNotice(w,`Package ${a.packages} of 3 picked up.`);}done=s.packages.every(id=>w.pickups.find(p=>p.id===id)?.taken);}
+  if(k==='defend'&&!w.enemies.some(e=>s.targets.includes(e.id))){if(s.wave<(s.detail.waves||1)){s.wave++;spawnWave(w,s);}else done=true;}
+  if(k==='chase'&&v){let remaining=14*dt;while(remaining>0){const goal=w.city.graph[s.nextNode],d=distance(v,goal);if(d>remaining){v.heading=Math.atan2(goal.z-v.z,goal.x-v.x);v.x+=Math.cos(v.heading)*remaining;v.z+=Math.sin(v.heading)*remaining;remaining=0;}else{v.x=goal.x;v.z=goal.z;remaining-=d;const options=goal.edges.filter(id=>id!==s.node);s.node=goal.id;s.nextNode=(options.length?options:goal.edges)[Math.floor(w.rng()*(options.length||goal.edges.length))];}}v.speed=14;s.progress=distance(p,v)<5?s.progress+dt:0;done=v.health<=20||s.progress>=3;}
+  if(k==='crack-vault'&&v){s.progress=distance(p,v)<12&&w.wanted>=1?s.progress+dt:Math.max(0,s.progress-dt);done=s.progress>=(s.detail.holdSeconds||12);}
+  if(k==='escape'){s.reachedFour ||= w.wanted>=4;done=s.reachedFour&&w.wanted===0;}
+  if(done){addNotice(w,s.text);a.stageIndex++;if(a.stageIndex===a.stages.length)completeMission(w);else stageStart(w);}
 }
-
-// Is the player within `r` units of a point?
-function near(state, x, z, r) {
-  return dist2(state.player.x, state.player.z, x, z) < r * r;
-}
-
-// Complete the active job: payout, respect, unlock the next one.
-function completeMission(state) {
-  const m = state.mission;
-  const def = MISSIONS[m.id - 1];
-  m.active = false;
-  m.done[m.id - 1] = true;
-  addMoney(state, def.payout);
-  addRespect(state, def.respect);
-  if (m.id < 6) {
-    state.mission.unlocked = Math.max(state.mission.unlocked, m.id + 1);
-    if (state.notices) state.notices.push(`New job unlocked: ${MISSIONS[m.id].title}`);
-  } else if (state.notices) {
-    state.notices.push('EMPIRE: King of Solmar! Free roam open, every job replayable.');
-  }
-  if (state.notices) state.notices.push(`JOB COMPLETE: ${def.title} +$${def.payout} +${def.respect} respect`);
-  say(state, 'Rosa Delgado', 'Clean work, Milo. That was textbook.');
-  if (typeof state.onMissionDone === 'function') state.onMissionDone(m.id);
-}
-
-// Fail the active job.
-function failMission(state, reason) {
-  const m = state.mission;
-  m.active = false;
-  m.failed = true;
-  m.failReason = reason;
-  if (state.notices) state.notices.push(`JOB BLOWN: ${reason}`);
-}
-
-// Advance the mission engine one step.
-export function updateMissions(state, city, dt, rng) {
-  const m = state.mission;
-  if (!m.active) return;
-  const p = state.player;
-  // The clock runs only on timed jobs.
-  if (m.timerMax > 0) {
-    m.timer += dt;
-    if (m.timer > m.timerMax) {
-      failMission(state, "Time's up.");
-      return;
-    }
-  }
-  if (m.id === 1) {
-    if (m.stage === 0 && near(state, -260, 200, 14)) {
-      m.stage = 1;
-      if (state.notices) state.notices.push("Rosa's car found. Get in (E), drive it to the garage.");
-    } else if (m.stage === 1 && near(state, -180, 60, 14)) {
-      completeMission(state);
-    }
-  } else if (m.id === 2) {
-    if (m.stage === 0 && near(state, 120, -160, 14)) {
-      m.stage = 1;
-      if (state.notices) state.notices.push('Out of the cordon. Now lose the cops!');
-      say(state, 'Juno', "Go, Milo. I've got the map.");
-    } else if (m.stage === 1 && state.wanted.level === 0 && near(state, 120, -160, 20)) {
-      completeMission(state);
-    }
-  } else if (m.id === 3) {
-    for (const t of m.targets) {
-      if (!t.done && near(state, t.x, t.z, 13)) {
-        t.done = true;
-        m.collected += 1;
-        if (state.notices) state.notices.push(`Package ${m.collected} of 3 picked up.`);
-      }
-    }
-    if (m.collected >= 3) completeMission(state);
-  } else if (m.id === 4) {
-    if (m.stage === 0 && near(state, -180, 60, 14)) {
-      m.stage = 1;
-      m.wave = 1;
-      spawnEnemies(state, -180, 60, 3, rng);
-      if (state.notices) state.notices.push("They're at the garage! Hold them off, Milo!");
-      say(state, 'Rosa Delgado', "They're at the garage! Hold them off, Milo!");
-    } else if (m.stage === 1) {
-      if (aliveEnemies(state) === 0) {
-        m.stage = 2;
-        m.wave = 2;
-        // A Vulture car flees toward the docks; the player chases it.
-        // No second wave of shooters: they would ambush the player at
-        // point-blank range while they try to get in a car.
-        const vulture = {
-          id: state.nextVehicleId++,
-          model: 'sports',
-          x: -180,
-          z: 60,
-          heading: 0,
-          speed: 0,
-          parked: false,
-          driver: 'vulture',
-          health: 100,
-          smoke: 0,
-          steer: 0,
-          color: '#222222',
-          route: null,
-          routeIdx: 0,
-        };
-        state.vehicles.push(vulture);
-        const route = findPath(city, -180, 60, -140, 100);
-        vulture.route = route.length > 1 ? route : [{ x: -140, z: 100 }];
-        if (state.notices) state.notices.push('Wave 2! Chase the fleeing Vulture car!');
-      }
-    } else if (m.stage === 2) {
-      // The chase: reaching the Vulture car's destination completes the
-      // job (the second wave is a distraction, not a blocker).
-      if (near(state, -140, 100, 15)) {
-        completeMission(state);
-      }
-    }
-  } else if (m.id === 5) {
-    if (m.stage === 0 && near(state, 200, 40, 14)) {
-      m.stage = 1;
-      if (state.notices) state.notices.push('Sports car secured. Deliver it to Palm Heights.');
-      say(state, 'Juno', 'Nice. Now drive it to the buyer, slow and smooth.');
-    } else if (m.stage === 1) {
-      const v = state.vehicles.find((q) => q.id === p.vehicleId);
-      if (v && v.model === 'sports') m.stage = 2;
-    } else if (m.stage === 2 && near(state, -200, -180, 15)) {
-      completeMission(state);
-    }
-  } else if (m.id === 6) {
-    if (m.stage === 0 && near(state, 260, 40, 15)) {
-      m.stage = 1;
-      m.holdMax = 12;
-      m.holdT = 0;
-      state.wanted.heat = 4.2;
-      state.wanted.level = 4;
-      state.wanted.spotted = true;
-      if (state.notices) state.notices.push('CRACK THE VAULT: hold the cops off for 12 seconds!');
-      say(state, 'Kane', "You won't leave this city alive.");
-    } else if (m.stage === 1) {
-      m.holdT += dt;
-      if (m.holdT >= m.holdMax) {
-        m.stage = 2;
-        if (state.notices) state.notices.push("Vault's open! Run to the safehouse!");
-      }
-    } else if (m.stage === 2 && near(state, -260, 190, 15)) {
-      completeMission(state);
-    }
-  }
-}
-
-// The objective line the HUD shows for the active job.
-export function missionObjective(state) {
-  const m = state.mission;
-  if (!m.active) return 'Free roam — press M for map, E near a car to get in';
-  const def = MISSIONS[m.id - 1];
-  const stageText = {
-    1: ['Go to the pier', 'Drive to the garage'],
-    2: ['Reach the cordon edge', 'Lose the cops'],
-    3: [`Packages ${m.collected} of 3`],
-    4: ['Go to the workshop', 'Hold wave 1', 'Chase the Vulture car'],
-    5: ['Go to the lot', 'Take the sports car', 'Deliver to Palm Heights'],
-    6: ['Go to the vault truck', `Hold the vault ${Math.ceil(Math.max(0, m.holdMax - m.holdT))}s`, 'Escape to the safehouse'],
-  }[m.id];
-  const step = stageText[Math.min(m.stage, stageText.length - 1)] || '';
-  return `Job ${m.id}: ${def.title} — ${step}`;
-}
+registerSystem('missions',stepMissions);

@@ -1,115 +1,29 @@
-// combat.js — enemy AI. Vultures take cover, fire in bursts, and strafe.
-// They are dumb on purpose: they walk toward the player, stop at range,
-// and shoot. The player outplays them with movement, not with clever AI.
-
-import { dist2, clamp, wrapAngle } from './random.js';
-import { COMBAT } from './config.js';
-
-// Spawn `count` enemies around a point. Returns the enemy records.
-export function spawnEnemies(state, x, z, count, rng) {
-  const made = [];
-  for (let i = 0; i < count; i++) {
-    const e = {
-      id: state.nextEnemyId++,
-      x: x + rng.range(-8, 8),
-      z: z + rng.range(-8, 8),
-      heading: rng.range(0, Math.PI * 2),
-      health: COMBAT.enemyHealth,
-      alive: true,
-      speed: 4.5,
-      burst: 0,
-      burstTimer: rng.range(0.5, 1.5),
-      shootCooldown: 0,
-      strafeDir: rng.chance(0.5) ? 1 : -1,
-      strafeT: 0,
-      flashT: 0,
-    };
-    state.enemies.push(e);
-    made.push(e);
-  }
-  return made;
+import { CONFIG } from './config.js';
+import { registerSystem, collideCircle, damagePlayer, pushEvent } from './world.js';
+export function spawnEnemy(w,x,z,opts={}) {
+  if(w.enemies.length>=CONFIG.MAX_ENEMIES)return null;
+  const id=`enemy-${w.flags.enemySerial=(w.flags.enemySerial||0)+1}`;
+  const e={id,x,z,heading:0,health:100,weapon:['pistol','smg','rifle'].includes(opts.weapon)?opts.weapon:'pistol',state:'cover',cover:null,fireT:0,burstLeft:0,strafeDir:1,...opts};
+  w.enemies.push(e);return e;
 }
-
-// Advance all enemies one step.
-export function updateEnemies(state, city, dt, rng) {
-  const p = state.player;
-  for (const e of state.enemies) {
-    if (!e.alive) continue;
-    if (e.flashT > 0) e.flashT -= dt;
-    const dx = p.x - e.x;
-    const dz = p.z - e.z;
-    const d = Math.sqrt(dx * dx + dz * dz) || 0.001;
-    const want = Math.atan2(dx, dz);
-    e.heading = want;
-    // Walk toward the player until in range, then strafe and shoot.
-    if (d > 26) {
-      e.x += Math.sin(e.heading) * e.speed * dt;
-      e.z += Math.cos(e.heading) * e.speed * dt;
-    } else {
-      e.strafeT -= dt;
-      if (e.strafeT <= 0) {
-        e.strafeDir *= -1;
-        e.strafeT = rng.range(0.8, 1.6);
-      }
-      const sx = Math.cos(e.heading) * e.strafeDir;
-      const sz = -Math.sin(e.heading) * e.strafeDir;
-      e.x += sx * 2.2 * dt;
-      e.z += sz * 2.2 * dt;
-    }
-    // Burst fire: 3-5 shots, then a pause.
-    e.shootCooldown -= dt;
-    if (d < 45 && e.shootCooldown <= 0) {
-      if (e.burst <= 0) {
-        e.burst = 3 + Math.floor(rng.float() * 3);
-        e.burstTimer = 0.4;
-      }
-      e.burstTimer -= dt;
-      if (e.burstTimer <= 0 && e.burst > 0) {
-        e.burst -= 1;
-        e.burstTimer = 0.16;
-        shootAtPlayer(state, e, rng);
-        if (e.burst <= 0) e.shootCooldown = rng.range(0.9, 1.6);
-      }
-    }
-    // Keep enemies inside the island.
-    e.x = clamp(e.x, -315, 315);
-    e.z = clamp(e.z, -235, 235);
+export function damageEnemy(w,e,dmg,from='player') {
+  if(!w.enemies.includes(e)||e.health<=0||dmg<=0)return;
+  e.health=Math.max(0,e.health-dmg);
+  if(!e.health){w.stats.kills++;pushEvent(w,'enemy-down',{id:e.id,from});w.enemies=w.enemies.filter(o=>o!==e);}
+}
+function move(w,e,x,z,dt,speed=3){const d=Math.hypot(x-e.x,z-e.z);if(!d)return;const t=Math.min(d,speed*dt)/d;Object.assign(e,collideCircle(w,e.x+(x-e.x)*t,e.z+(z-e.z)*t,0.45));}
+function corner(w,e){let best=null,dist=15;for(const b of w.city?.buildings||[])for(const sx of [-1,1])for(const sz of [-1,1]){const p={x:b.x+sx*(b.w/2+1),z:b.z+sz*(b.d/2+1)},d=Math.hypot(p.x-e.x,p.z-e.z);if(d<dist){dist=d;best=p;}}return best;}
+export function stepCombat(w,input,dt){
+  w.enemies=w.enemies.filter(e=>e.health>0&&(e.missionId||Math.hypot(e.x-w.player.x,e.z-w.player.z)<=250)).slice(0,CONFIG.MAX_ENEMIES);
+  for(const e of w.enemies){const p=w.player,d=Math.hypot(p.x-e.x,p.z-e.z);e.heading=Math.atan2(p.z-e.z,p.x-e.x);e.fireT-=dt;
+    if(d>40){e.state='advance';e.cover=null;move(w,e,p.x,p.z,dt);continue;}
+    if(d<12){e.state='strafe';move(w,e,e.x-Math.sin(e.heading)*e.strafeDir*3,e.z+Math.cos(e.heading)*e.strafeDir*3,dt);}
+    else {e.cover ||= corner(w,e);e.state='cover';if(e.cover&&Math.hypot(e.cover.x-e.x,e.cover.z-e.z)>0.5){move(w,e,e.cover.x,e.cover.z,dt);continue;}e.state='burst';}
+    if(w.flags.interior||(!w.mission.active&&w.wanted===0)||p.dead||e.fireT>0)continue;
+    if(!e.burstLeft)e.burstLeft=3+Math.floor(w.rng()*3);
+    if(w.rng()<Math.max(0.08,Math.min(0.5,0.55-d*0.008)))damagePlayer(w,e.weapon==='rifle'?12:e.weapon==='smg'?8:6,e.id);
+    w.projectiles.push({kind:'tracer',x:e.x,y:1.3,z:e.z,vx:Math.cos(e.heading)*90,vz:Math.sin(e.heading)*90,life:Math.max(0.03,d/90)});
+    pushEvent(w,'enemy-shot',{x:e.x,z:e.z,id:e.id});e.burstLeft--;e.fireT=e.burstLeft?0.12:1+w.rng();
   }
 }
-
-// One enemy shot at the player. Hit chance falls with distance.
-function shootAtPlayer(state, e, rng) {
-  const p = state.player;
-  const d = Math.sqrt(dist2(e.x, e.z, p.x, p.z));
-  const hitChance = clamp(0.5 - d * 0.008, 0.08, 0.5);
-  state.shotFx = { fromX: e.x, fromZ: e.z, toX: p.x, toZ: p.z, t: 0.08 };
-  if (rng.float() < hitChance) {
-    damagePlayer(state, 5);
-  }
-}
-
-// Hurt the player (armor absorbs first). Returns true when the player dies.
-export function damagePlayer(state, amount) {
-  const p = state.player;
-  if (p.armor > 0) {
-    const absorbed = Math.min(p.armor, amount);
-    p.armor -= absorbed;
-    amount -= absorbed;
-  }
-  p.health -= amount;
-  if (p.health <= 0) {
-    p.health = 0;
-    return true;
-  }
-  return false;
-}
-
-// How many enemies are still alive.
-export function aliveEnemies(state) {
-  return state.enemies.filter((e) => e.alive).length;
-}
-
-// Clear dead enemies from the list (corpses stay in state.corpses).
-export function pruneEnemies(state) {
-  state.enemies = state.enemies.filter((e) => e.alive);
-}
+registerSystem('combat',stepCombat);

@@ -1,69 +1,69 @@
-// SOLMAR 3D — hand-in program (Node 22, standard library only).
-// Copies game/ and screenshots/ beside this file to /output and writes
-// /output/dossier.json with the vendored make.fun library.
-//
-// Gate (refuses a bad hand-in, exit 1, message "refusing to hand in"):
-//   - game/index.html, game/src/main.js, game/src/render.js, game/src/city.js exist
-//   - screenshots/ holds 3-4 images, nothing else, cover starts with "1-"
-//   - dossier caps, written in the comment below, are enforced by buildDossier:
-//     dossier text 163840 bytes; screenshots max 4, each max 262144 bytes;
-//     game/ max 993 files and 48 MiB; any game/ path max 1000 bytes;
-//     /output total max 1000 entries and 64 MiB.
-//
-// Run it outside the grader with:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// Text: 160 KiB; screenshots: four, each at most 256 KiB.
+const TEXT_MAX_BYTES = 163840;
+const SCREENSHOTS_MAX = 4;
+const SCREENSHOT_MAX_BYTES = 262144;
+// Game: 993 entries, 48 MiB total, paths at most 1000 UTF-8 bytes.
+const GAME_MAX_FILES = 993;
+const GAME_MAX_BYTES = 50331648;
+const GAME_PATH_MAX_BYTES = 1000;
+const root = fileURLToPath(new URL('.', import.meta.url));
+const output = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function refuse(reason) {
+function refuse(reason: string): never {
   console.error(`refusing to hand in: ${reason}`);
   process.exit(1);
 }
 
-const required = ['game/index.html', 'game/src/main.js', 'game/src/render.js', 'game/src/city.js', 'game/src/world.js', 'game/src/data.js'];
-for (const file of required) {
-  if (!existsSync(join(here, file))) refuse(`missing required file ${file}`);
+function gate() {
+  const required = [
+    'index.html', 'src/main.js', 'src/render.js', 'src/city.js',
+    'src/buildings.js', 'src/materials.js', 'src/props.js',
+  ];
+  for (const name of required) {
+    const path = join(root, 'game', name);
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      refuse(`game/${name} is missing or is not a regular file`);
+    }
+  }
+  const directory = join(root, 'screenshots');
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+    refuse('screenshots/ is missing or is not a directory');
+  }
+  const names = readdirSync(directory).sort();
+  if (names.length < 3 || names.length > SCREENSHOTS_MAX) {
+    refuse(`screenshots/ must contain 3 to 4 images; found ${names.length}`);
+  }
+  if (!names[0].startsWith('1-')) refuse('first screenshot name must start with 1-');
+  for (const name of names) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/.test(name) || !/\.(png|jpe?g)$/i.test(name)) {
+      refuse(`screenshots/${name} must have a valid PNG or JPEG filename`);
+    }
+    const info = statSync(join(directory, name));
+    if (!info.isFile()) refuse(`screenshots/${name} is not an image file`);
+    if (info.size > SCREENSHOT_MAX_BYTES) {
+      refuse(`screenshots/${name} exceeds ${SCREENSHOT_MAX_BYTES} bytes`);
+    }
+  }
 }
 
-const shotsDir = join(here, 'screenshots');
-if (!existsSync(shotsDir)) refuse('missing screenshots/ directory');
-const shots = readdirSync(shotsDir).filter((name) => !name.startsWith('.')).sort();
-if (shots.length < 3 || shots.length > 4) refuse(`screenshots/ holds ${shots.length} images, need 3-4`);
-for (const name of shots) {
-  const full = join(shotsDir, name);
-  if (!statSync(full).isFile()) refuse(`screenshots/${name} is not a regular file`);
-  if (!/\.(png|jpe?g)$/i.test(name)) refuse(`screenshots/${name} is not a PNG or JPEG`);
-  if (statSync(full).size > 262144) refuse(`screenshots/${name} is over 256 KiB`);
+try {
+  gate();
+} catch (error) {
+  refuse(error instanceof Error ? error.message : String(error));
 }
-if (!shots[0].startsWith('1-')) refuse(`cover screenshot ${shots[0]} does not start with 1-`);
-
-// The last submit was rejected partly because artifacts/shots.json and
-// artifacts/video.json held stale prototype content the builder never
-// wrote. This rebuild commits no artifacts/*.json at all — refuse the
-// hand-in if either file is present, so a stale metadata file can never
-// reach the scorer again.
-for (const bad of ['artifacts/shots.json', 'artifacts/video.json']) {
-  if (existsSync(join(here, bad))) refuse(`${bad} must not exist (stale metadata killed the last submit)`);
-}
-
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-cpSync(shotsDir, join(out, 'screenshots'), { recursive: true });
-
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
-console.log(`handed in SOLMAR 3D: ${shots.length} screenshots, dossier written to ${join(out, 'dossier.json')}`);
+mkdirSync(output, { recursive: true });
+cpSync(join(root, 'game'), join(output, 'game'), { recursive: true });
+mkdirSync(join(output, 'screenshots'), { recursive: true });
+cpSync(join(root, 'screenshots'), join(output, 'screenshots'), { recursive: true });
+writeFileSync(join(output, 'dossier.json'), buildDossier(output, {
+  text_max_bytes: TEXT_MAX_BYTES,
+  screenshots: { max: SCREENSHOTS_MAX, max_bytes: SCREENSHOT_MAX_BYTES },
+  game_max_files: GAME_MAX_FILES,
+  game_max_bytes: GAME_MAX_BYTES,
+  game_path_max_bytes: GAME_PATH_MAX_BYTES,
+}));

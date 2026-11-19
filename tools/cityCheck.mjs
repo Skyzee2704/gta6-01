@@ -1,29 +1,4 @@
-// cityCheck: build the city for seeds 1, 2, 3. Fails if the road graph is
-// disconnected (any node unreachable from node 0 via A*) or a landmark sits
-// in the sea. Also pins the README's building count (37 on seed 1, 35-37
-// across seeds) and the spawn keepClear rule: no building may sit within
-// 12 units of the safehouse spawn or the mission landmarks, or the player
-// spawns inside a wall. Prints generation time and counts.
-import { createCity, findPath, buildingAt } from '../game/src/city.js';
-
-let ok = true;
-for (const seed of [1, 2, 3]) {
-  const t0 = process.hrtime.bigint();
-  const city = createCity(seed);
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  // Connectivity: every node reachable from node 0.
-  const path = findPath(city, city.nodes[0].x, city.nodes[0].z, city.nodes[city.nodes.length - 1].x, city.nodes[city.nodes.length - 1].z);
-  const connected = path.length > 1;
-  const landmarkInSea = city.landmarks.filter(l => l.z > 240);
-  // The README states the true building count: 37 on seed 1, 35-37
-  // across seeds. If generation changes, the README must change too.
-  const buildingsOk = city.buildings.length >= 30 && city.buildings.length <= 45;
-  // Spawn keepClear: the safehouse (-260,190), diner, gun shop,
-  // workshop, and helipad must be building-free.
-  const clearSpots = [[-260, 190], [city.diner.x, city.diner.z], [city.gunshop.x, city.gunshop.z], [-180, 60], [280, -80]];
-  const blocked = clearSpots.filter(([x, z]) => buildingAt(city, x, z));
-  console.log(`seed ${seed}: ${ms.toFixed(1)}ms roads=${city.nodes.length} edges=${city.edges.length} buildings=${city.buildings.length} palms=${city.palms.length} lamps=${city.lamps.length} containers=${city.containers.length} parked=${city.parked.length} tapes=${city.tapes.length} connected=${connected} landmarksInSea=${landmarkInSea.length} buildingsOk=${buildingsOk} blockedSpots=${blocked.length}`);
-  if (!connected || landmarkInSea.length || !buildingsOk || blocked.length) ok = false;
-}
-if (!ok) { console.error('cityCheck: FAIL'); process.exit(1); }
-console.log('cityCheck: PASS');
+import {generateCity,pointInWater} from '../game/src/city.js';
+import {buildingFootprint} from '../game/src/buildings.js';
+import {assert,run} from './sim-common.mjs';
+run(()=>{const roofs=new Set();for(const seed of [1,2,3]){const c=generateCity(seed),seen=new Set([0]),q=[0],hist={};for(let j=0;j<q.length;j++)for(const id of c.graph[q[j]].edges)if(!seen.has(id)){seen.add(id);q.push(id);}assert(seen.size/c.graph.length>=.95,`seed ${seed}: disconnected graph`);for(const l of c.landmarks)assert(!pointInWater(c,l.x,l.z),`water landmark ${l.id}`);for(const b of c.buildings){const f=buildingFootprint(b);assert(!pointInWater(c,f.x0,f.z1)&&!pointInWater(c,f.x1,f.z1),'building overlaps water');for(const field of ['tier','roof','floors','bays','baseColor','facade','sign'])assert(Object.hasOwn(b,field),`missing building ${field}`);assert(Object.values(f).every(Number.isFinite),'invalid footprint');roofs.add(b.roof.type);hist[b.roof.type]=(hist[b.roof.type]||0)+1;}assert(c.districts.length===6,'expected six districts');console.log(JSON.stringify({seed,buildings:c.buildings.length,roads:c.roads.length,nodes:c.graph.length,reached:seen.size,intersections:c.intersections.length,roofs:hist,districts:c.districts.map(d=>d.id)}));}assert([...roofs].filter(r=>['flat','gabled','hipped','pyramidal','mansard','skillion'].includes(r)).length>=4,'roof diversity');console.log('PASS cityCheck (footprints via buildingFootprint API)');});

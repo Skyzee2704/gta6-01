@@ -1,89 +1,40 @@
-// traffic.js — traffic AI. Cars follow the road graph, keep their lane,
-// brake for pedestrians ahead and for slow cars, and panic (speed up,
-// swerve) when the player causes chaos nearby.
-
-import { dist2, clamp } from './random.js';
-import { findPath } from './city.js';
-
-// Give a traffic car a route: a random road-graph path to follow.
-export function assignRoute(car, city, rng) {
-  const target = city.nodes[rng.int(0, city.nodes.length - 1)];
-  const path = findPath(city, car.x, car.z, target.x, target.z);
-  car.route = path.length > 1 ? path : [{ x: target.x, z: target.z }];
-  car.routeIdx = 0;
-}
-
-// Is there a pedestrian in front of this car within `ahead` units?
-function pedAhead(state, car, ahead) {
-  const fx = Math.sin(car.heading);
-  const fz = Math.cos(car.heading);
-  for (const ped of state.peds) {
-    if (ped.down) continue;
-    const dx = ped.x - car.x;
-    const dz = ped.z - car.z;
-    const along = dx * fx + dz * fz;
-    if (along < 0 || along > ahead) continue;
-    const side = Math.abs(dx * fz - dz * fx);
-    if (side < 4) return ped;
+import { CONFIG } from './config.js';
+import { hashString, clamp } from './random.js';
+import { spawnVehicle } from './vehicles.js';
+import { registerSystem, pushEvent, addNotice } from './world.js';
+export function trafficLightAt(city,nodeId,time){const phase=((time+hashString(String(nodeId))*24)%24+24)%24;return phase<14?'green':phase<17?'yellow':'red';}
+const pick=(w,a)=>a[Math.floor(w.rng()*a.length)];
+const types=['sedan','coupe','suv','pickup','van','taxi'];
+const seen=new WeakSet();
+export function stepTraffic(w,input,dt){
+  if(!w.city?.graph.length)return;
+  const graph=w.city.graph,p=w.player;
+  const shots=w.events.filter(e=>{if(seen.has(e))return false;seen.add(e);return e.kind==='shot';});
+  w.traffic=w.traffic.filter(t=>{const v=w.vehicles.find(v=>v.id===t.vehicleId);if(!v||v.driver!=='traffic')return false;
+    if(Math.hypot(v.x-p.x,v.z-p.z)>320){w.vehicles=w.vehicles.filter(o=>o!==v);return false;}return true;});
+  while(w.traffic.length<CONFIG.MAX_TRAFFIC){
+    const choices=graph.filter(n=>Math.hypot(n.x-p.x,n.z-p.z)<200);if(!choices.length)break;
+    const a=pick(w,choices),b=graph[pick(w,a.edges)],progress=w.rng();
+    const v=spawnVehicle(w,pick(w,types),a.x+(b.x-a.x)*progress,a.z+(b.z-a.z)*progress,Math.atan2(b.z-a.z,b.x-a.x),{driver:'traffic'});
+    w.traffic.push({vehicleId:v.id,node:a.id,nextNode:b.id,progress,speed:0,state:'drive',honkT:0,jamT:0,cruise:8+w.rng()*4,panicChecked:false});
   }
-  return null;
-}
-
-// Is there a slow car ahead?
-function carAhead(state, car, ahead) {
-  const fx = Math.sin(car.heading);
-  const fz = Math.cos(car.heading);
-  for (const other of state.vehicles) {
-    if (other.id === car.id || other.parked) continue;
-    const dx = other.x - car.x;
-    const dz = other.z - car.z;
-    const along = dx * fx + dz * fz;
-    if (along < 0 || along > ahead) continue;
-    const side = Math.abs(dx * fz - dz * fx);
-    if (side < 3.5) return other;
-  }
-  return null;
-}
-
-// Advance all traffic cars one step. 'vulture' cars (the fleeing car in
-// job 4) follow their route the same way, a little faster.
-export function updateTraffic(state, city, dt, rng) {
-  for (const car of state.vehicles) {
-    if (car.driver !== 'traffic' && car.driver !== 'vulture') continue;
-    if (!car.route || car.routeIdx >= car.route.length) {
-      assignRoute(car, city, rng);
-      continue;
-    }
-    const wp = car.route[car.routeIdx];
-    const dx = wp.x - car.x;
-    const dz = wp.z - car.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 8) {
-      car.routeIdx += 1;
-      continue;
-    }
-    const want = Math.atan2(dx, dz);
-    let dh = want - car.heading;
-    while (dh > Math.PI) dh -= Math.PI * 2;
-    while (dh < -Math.PI) dh += Math.PI * 2;
-    // Steer toward the waypoint.
-    car.heading += clamp(dh, -1.6 * dt, 1.6 * dt);
-    // Brake for peds and slow cars ahead.
-    const ped = pedAhead(state, car, 14);
-    const ahead = carAhead(state, car, 16);
-    let targetSpeed = car.driver === 'vulture' ? 26 : 13;
-    if (ped) targetSpeed = 0;
-    else if (ahead) targetSpeed = Math.min(targetSpeed, Math.abs(ahead.speed || 0));
-    // Panic: the player is ramming or shooting nearby.
-    const playerNear = Math.sqrt(dist2(car.x, car.z, state.player.x, state.player.z)) < 12;
-    if (playerNear && state.wanted.level > 0) targetSpeed = 20;
-    const accel = targetSpeed > Math.abs(car.speed) ? 10 : 22;
-    if (Math.abs(car.speed) < targetSpeed) car.speed += accel * dt;
-    else car.speed -= accel * dt;
-    car.speed = clamp(car.speed, 0, 22);
-    car.x += Math.sin(car.heading) * car.speed * dt;
-    car.z += Math.cos(car.heading) * car.speed * dt;
-    car.x = clamp(car.x, -315, 315);
-    car.z = clamp(car.z, -235, 235);
+  for(const t of w.traffic){
+    const v=w.vehicles.find(v=>v.id===t.vehicleId);if(!v)continue;
+    const nearby=Math.hypot(v.x-p.x,v.z-p.z)<80;
+    const alarm=(w.wanted>=3&&nearby)||shots.some(e=>Math.hypot((e.x??p.x)-v.x,(e.z??p.z)-v.z)<40);
+    if(alarm&&!t.panicChecked){t.panicChecked=true;if(w.rng()<0.5)t.state='panic';}if(!alarm)t.panicChecked=false;
+    let a=graph[t.node],b=graph[t.nextNode],length=Math.hypot(b.x-a.x,b.z-a.z);
+    const remaining=(1-t.progress)*length,panic=t.state==='panic';
+    let target=t.cruise*(w.weather.kind==='rain'?0.85:1)*(panic?1.5:1),jam=false;
+    if(!panic&&b.edges.length>2&&remaining<12&&trafficLightAt(w.city,b.id,w.elapsed)!=='green')target=remaining<2?0:Math.min(target,remaining*0.8);
+    for(const o of w.traffic)if(o!==t&&o.node===t.node&&o.nextNode===t.nextNode){const gap=(o.progress-t.progress)*length;if(gap>0&&gap<8){target=Math.min(target,gap<4?0:o.speed);jam=true;}}
+    t.speed+=clamp(target-t.speed,-10*dt,4*dt);v.speed=t.speed;
+    t.jamT=jam&&t.speed<0.5?t.jamT+dt:0;t.honkT=Math.max(0,t.honkT-dt);
+    if(t.jamT>4&&t.honkT===0){pushEvent(w,'honk',{x:v.x,z:v.z});if(nearby)addNotice(w,"Honk! Traffic's jammed ahead of you.");t.honkT=10;}
+    if(!panic)t.state=t.speed<0.5?'stop':'drive';
+    let distance=t.progress*length+t.speed*dt;
+    while(distance>=length&&length>0){distance-=length;const previous=a.id;a=b;const options=a.edges.filter(id=>id!==previous);b=graph[pick(w,options.length?options:a.edges)];t.node=a.id;t.nextNode=b.id;length=Math.hypot(b.x-a.x,b.z-a.z);}
+    t.progress=length?distance/length:0;v.x=a.x+(b.x-a.x)*t.progress;v.z=a.z+(b.z-a.z)*t.progress;v.heading=Math.atan2(b.z-a.z,b.x-a.x);
   }
 }
+registerSystem('traffic',stepTraffic);

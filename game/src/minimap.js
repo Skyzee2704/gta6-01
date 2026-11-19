@@ -1,209 +1,30 @@
-// minimap.js — the round, rotating radar. A circular canvas in the
-// corner of the screen. The map rotates so the player's heading is up
-// (like GTA), the island is an ellipse, roads are lines, and the player
-// is the triangle in the center. Missions, shops, and the race route
-// are blips. The same drawing is used by the big map (M key) at a
-// larger size.
-
-import { ROAD_XS, ROAD_ZS } from './config.js';
-
-// The island bounds (match city.js).
-const MAP_MIN_X = -340;const MAP_MAX_X = 340;
-const MAP_MIN_Z = -260;
-const MAP_MAX_Z = 260;
-
-function worldToMap(x, z, size, range) {
-  const mx = ((x - MAP_MIN_X) / (MAP_MAX_X - MAP_MIN_X)) * size;
-  const my = ((z - MAP_MIN_Z) / (MAP_MAX_Z - MAP_MIN_Z)) * size;
-  return [mx, my];
-}
-
-// Draw the radar. `ctx` is a 2D canvas context, `size` the canvas
-// width/height (square). `heading` rotates the map so up = forward.
-export function drawRadar(ctx, state, world, size, heading) {
-  const cx = size / 2;
-  const cy = size / 2;
-  const range = 140;
-  const scale = size / (range * 2);
-  ctx.clearRect(0, 0, size, size);
-  ctx.save();
-  // Circular clip.
-  ctx.beginPath();
-  ctx.arc(cx, cy, cx - 2, 0, Math.PI * 2);
-  ctx.clip();
-  // Background: dark water.
-  ctx.fillStyle = '#0a2a3a';
-  ctx.fillRect(0, 0, size, size);
-  ctx.translate(cx, cy);
-  ctx.rotate(-heading);
-  ctx.scale(scale, scale);
-  ctx.translate(-state.player.x, -state.player.z);
-  // Island ellipse (sand).
-  ctx.fillStyle = '#c2a878';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 320, 240, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Roads.
-  ctx.strokeStyle = '#3a3a3a';
-  ctx.lineWidth = 6;
-  for (const x of ROAD_XS) {
-    ctx.beginPath();
-    ctx.moveTo(x, -240);
-    ctx.lineTo(x, 240);
-    ctx.stroke();
-  }
-  for (const z of ROAD_ZS) {
-    ctx.beginPath();
-    ctx.moveTo(-320, z);
-    ctx.lineTo(320, z);
-    ctx.stroke();
-  }
-  // Shops + landmarks.
-  const blips = [
-    { x: world.city.diner.x, z: world.city.diner.z, color: '#ffd27a', label: 'D' },
-    { x: world.city.gunshop.x, z: world.city.gunshop.z, color: '#ff5555', label: 'G' },
-    { x: -180, z: 60, color: '#5ad0ff', label: 'W' },
-    { x: 280, z: -80, color: '#ffffff', label: 'H' },
-    { x: -260, z: 190, color: '#7dff8a', label: 'S' },
-  ];
-  for (const b of blips) {
-    ctx.fillStyle = b.color;
-    ctx.beginPath();
-    ctx.arc(b.x, b.z, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Mission target.
-  const m = state.mission;
-  if (m && m.active && m.target) {
-    ctx.fillStyle = '#ff00ff';
-    ctx.beginPath();
-    ctx.arc(m.target.x, m.target.z, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#ff00ff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(m.target.x, m.target.z, 10 + Math.sin((state.time || 0) * 4) * 3, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  // Cops (blue) and enemies (red).
-  for (const c of state.cops || []) {
-    ctx.fillStyle = '#4488ff';
-    ctx.beginPath();
-    ctx.arc(c.x, c.z, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  for (const e of state.enemies || []) {
-    if (!e.alive) continue;
-    ctx.fillStyle = '#ff2222';
-    ctx.beginPath();
-    ctx.arc(e.x, e.z, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-  // Player triangle in the center (points up = forward).
-  ctx.fillStyle = '#ffffff';
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - 8);
-  ctx.lineTo(cx - 6, cy + 6);
-  ctx.lineTo(cx + 6, cy + 6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  // Ring border.
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, cx - 2, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-// The big map (M key): the same island, static, with the player and
-// blips. Drawn once per frame while open.
-export function drawBigMap(ctx, state, world, w, h) {
-  ctx.clearRect(0, 0, w, h);
-  // A lighter backdrop so the map reads bright (the luma floor is 0.35).
-  ctx.fillStyle = '#2a5a7a';
-  ctx.fillRect(0, 0, w, h);
-  const size = Math.min(w, h) * 0.86;
-  const ox = (w - size) / 2;
-  const oy = (h - size) / 2;
-  ctx.save();
-  ctx.translate(ox, oy);
-  // Water.
-  ctx.fillStyle = '#3a7a9a';
-  ctx.fillRect(0, 0, size, size);
-  // Island.
-  ctx.fillStyle = '#c2a878';
-  ctx.beginPath();
-  ctx.ellipse(size / 2, size / 2, size * 0.47, size * 0.35, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Roads.
-  ctx.strokeStyle = '#5a5a5a';
-  ctx.lineWidth = Math.max(2, size * 0.012);
-  for (const x of ROAD_XS) {
-    const [mx] = worldToMap(x, 0, size, 0);
-    ctx.beginPath();
-    ctx.moveTo(mx, 0);
-    ctx.lineTo(mx, size);
-    ctx.stroke();
-  }
-  for (const z of ROAD_ZS) {
-    const [, my] = worldToMap(0, z, size, 0);
-    ctx.beginPath();
-    ctx.moveTo(0, my);
-    ctx.lineTo(size, my);
-    ctx.stroke();
-  }
-  // District labels (white with a dark outline, readable on sand and
-  // on water). Positions are inside the island ellipse.
-  ctx.font = `bold ${Math.round(size * 0.035)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 3;
-  ctx.fillStyle = '#ffffff';
-  const labels = [
-    { x: -160, z: 200, t: 'MARINA' },
-    { x: 0, z: 0, t: 'DOWNTOWN' },
-    { x: -220, z: -130, t: 'HILLS' },
-    { x: 180, z: 150, t: 'DOCKS' },
-    { x: 170, z: -150, t: 'BEACH' },
-  ];
-  for (const l of labels) {
-    const [mx, my] = worldToMap(l.x, l.z, size, 0);
-    ctx.strokeText(l.t, mx, my);
-    ctx.fillText(l.t, mx, my);
-  }
-  // Blips.
-  const blips = [
-    { x: world.city.diner.x, z: world.city.diner.z, color: '#ffd27a', label: 'DINER' },
-    { x: world.city.gunshop.x, z: world.city.gunshop.z, color: '#ff5555', label: 'GUN SHOP' },
-    { x: -180, z: 60, color: '#5ad0ff', label: 'WORKSHOP' },
-    { x: 280, z: -80, color: '#ffffff', label: 'HELIPAD' },
-    { x: -260, z: 190, color: '#7dff8a', label: 'SAFEHOUSE' },
-  ];
-  ctx.font = `bold ${Math.round(size * 0.02)}px sans-serif`;
-  for (const b of blips) {
-    const [mx, my] = worldToMap(b.x, b.z, size, 0);
-    ctx.fillStyle = b.color;
-    ctx.beginPath();
-    ctx.arc(mx, my, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(b.label, mx, my - 12);
-  }
-  // Player.
-  const [px, py] = worldToMap(state.player.x, state.player.z, size, 0);
-  ctx.fillStyle = '#ffffff';
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(px, py - 10);
-  ctx.lineTo(px - 8, py + 8);
-  ctx.lineTo(px + 8, py + 8);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+const FONT='system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+function bounds(city){const ds=city?.districts||[];return {x0:Math.min(-320,...ds.map(d=>d.x0)),x1:Math.max(320,...ds.map(d=>d.x1)),z0:Math.min(-260,...ds.map(d=>d.z0)),z1:Math.max(280,...ds.map(d=>d.z1))};}
+export function worldToMap(city,x,z,w,h){const b=bounds(city);return {mx:(x-b.x0)/(b.x1-b.x0)*w,my:(z-b.z0)/(b.z1-b.z0)*h};}
+export function objectivePoint(world){const a=world?.mission?.active,s=a?.stage||a?.stages?.[a.stageIndex];if(!s)return null;const v=world.vehicles?.find(v=>v.id===s.vehicleId);const item=world.pickups?.find(p=>s.targets?.includes(p.id)&&!p.taken&&!p.collected);return v||item||s.position;}
+const COLORS={mission:'#ffc94d',police:'#579bff',postcard:'#ff77b8',diner:'#f49946',gunstore:'#ec6060',respray:'#b88aff',safehouse:'#72d58a',penthouse:'#72d58a',helipad:'#e7ede9',pier:'#7bd0d3',race:'#ffffff',car:'#a8b3b8'};
+function paint(ctx,city,world,w,h,view,full){
+  ctx.save();ctx.beginPath();ctx.rect(0,0,w,h);ctx.clip();ctx.fillStyle='#304d42';ctx.fillRect(0,0,w,h);if(!city){ctx.restore();return;}
+  const sx=w/(view.x1-view.x0),sz=h/(view.z1-view.z0),p=(x,z)=>({x:(x-view.x0)*sx,y:(z-view.z0)*sz});
+  const rect=(b,color)=>{const a=p(b.x0,b.z0);ctx.fillStyle=color;ctx.fillRect(a.x,a.y,(b.x1-b.x0)*sx,(b.z1-b.z0)*sz);};
+  rect({x0:view.x0,x1:view.x1,z0:city.waterLineZ,z1:Math.max(view.z1,city.waterLineZ)},'#245d83');if(city.beach)rect(city.beach,'#d6c18c');
+  for(const b of city.blocks||[]){const d=city.districts.find(d=>d.id===b.district);rect(b,d?.palette?.[0]||'#9aab9e');ctx.globalAlpha=.22;rect(b,d?.accent||'#2ee6c8');ctx.globalAlpha=1;}
+  for(const park of city.parks||[])rect(park,'#548963');
+  for(const r of city.roads||[]){const a=p(r.x0,r.z0),b=p(r.x1,r.z1);ctx.strokeStyle='#657176';ctx.lineWidth=Math.max(1,(r.width||city.helpers?.roadWidth||12)*(sx+sz)/2);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+  function mark(item,kind,r=3){if(!item||!Number.isFinite(item.x)||!Number.isFinite(item.z))return;const a=p(item.x,item.z);if(a.x<-12||a.x>w+12||a.y<-12||a.y>h+12)return;ctx.fillStyle=COLORS[kind]||'#fff';ctx.strokeStyle='#10202b';ctx.lineWidth=1;
+    ctx.beginPath();if(kind==='mission'){for(let i=0;i<10;i++){const angle=i*Math.PI/5-Math.PI/2,rad=i%2?r/2:r;i?ctx.lineTo(a.x+Math.cos(angle)*rad,a.y+Math.sin(angle)*rad):ctx.moveTo(a.x+Math.cos(angle)*rad,a.y+Math.sin(angle)*rad);}ctx.closePath();}else ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fill();ctx.stroke();
+    if(['helipad','pier','safehouse','penthouse','race'].includes(kind)){ctx.font=`bold ${Math.max(9,r*1.5)}px ${FONT}`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#10202b';ctx.fillText(({helipad:'H',pier:'T',safehouse:'⌂',penthouse:'⌂',race:'+'})[kind],a.x,a.y);if(kind==='race'){ctx.fillRect(a.x-r/2,a.y-r/2,r/2,r/2);ctx.fillRect(a.x,a.y,r/2,r/2);}}}
+  if(world?.searchZone){const q=world.searchZone,a=p(q.x,q.z);ctx.strokeStyle=`rgba(255,85,85,${world.wanted? .45+.3*Math.sin((world.elapsed||0)*5):.4})`;ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(a.x,a.y,q.radius*sx,q.radius*sz,0,0,Math.PI*2);ctx.stroke();}
+  for(const l of city.landmarks||[])if(COLORS[l.kind])mark(l,l.kind,full?5:4);
+  for(const route of city.raceRoutes||[])mark(route.checkpoints?.[0],'race',5);
+  for(const c of world?.pickups||city.postcards||[])if((c.kind==='postcard'||!c.kind)&&!c.collected&&!c.taken)mark(c,'postcard',2.5);
+  for(const v of world?.vehicles||[])if(v.id!==world.player?.vehicleId)mark(v,v.type==='cruiser'?'police':'car',2);
+  for(const c of world?.cops||[])mark(c,'police',3);
+  mark(objectivePoint(world),'mission',full?9:7);
+  if(full){for(const d of city.districts){const a=p((d.x0+d.x1)/2,(d.z0+d.z1)/2);ctx.font=`13px ${FONT}`;ctx.textAlign='center';ctx.textBaseline='middle';const width=ctx.measureText(d.name).width+16;ctx.fillStyle='rgba(10,14,30,.92)';ctx.beginPath();ctx.roundRect(a.x-width/2,a.y-12,width,24,12);ctx.fill();ctx.fillStyle=d.accent||d.color;ctx.fillText(d.name,a.x,a.y);}
+    ctx.font=`13px ${FONT}`;ctx.fillStyle='#f5ead2';for(let i=0;i<6;i++){ctx.fillText(String.fromCharCode(65+i),(i+.5)*w/6,10);ctx.fillText(String.fromCharCode(65+i),(i+.5)*w/6,h-9);ctx.fillText(String(i+1),9,(i+.5)*h/6);ctx.fillText(String(i+1),w-9,(i+.5)*h/6);}}
+  if(world?.player){const a=p(world.player.x,world.player.z);ctx.save();ctx.translate(a.x,a.y);ctx.rotate(world.player.heading||0);ctx.fillStyle='#fff';ctx.strokeStyle='#18232b';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(9,0);ctx.lineTo(-6,-5);ctx.lineTo(-3,0);ctx.lineTo(-6,5);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
   ctx.restore();
 }
+export function drawCityMap(ctx,city,world,w,h){paint(ctx,city,world,w,h,bounds(city),true);}
+export function drawMinimap(ctx,city,world,w,h){const p=world?.player||{x:0,z:0},halfZ=120*h/w;paint(ctx,city,world,w,h,{x0:p.x-120,x1:p.x+120,z0:p.z-halfZ,z1:p.z+halfZ},false);}

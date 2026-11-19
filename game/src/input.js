@@ -1,93 +1,12 @@
-// input.js — keyboard + mouse input, with edge-triggered actions.
-// The sim reads a plain input object each step; the browser builds it
-// from real keys, the tests build it by hand. An "action" fires once per
-// key press (edge), not once per step while held — that is what stops
-// the radio from spinning when ] is held down.
-
-import { clamp } from './random.js';
-
-// A fresh input object: every control released, no actions queued.
-export function emptyInput() {
-  return {
-    forward: false,
-    back: false,
-    left: false,
-    right: false,
-    handbrake: false,
-    jump: false,
-    run: false,
-    enterVehicle: false,
-    interact: false,
-    fire: false,
-    reload: false,
-    weaponNext: false,
-    weaponPrev: false,
-    radioNext: false,
-    radioPrev: false,
-    pause: false,
-    map: false,
-    topDown: false,
-    mouseDX: 0,
-    mouseDY: 0,
-  };
+export function createInput(){const i={};for(const k of ['forward','back','left','right','run','jump','enter','shoot','reload','interact','handbrake','horn','weaponNext','weaponPrev','pause','map','view2d','crouch','weaponWheel'])i[k]=false;return {...i,mouseDX:0,mouseDY:0,mouseX:0,mouseY:0,pressed:{},keys:{}};}
+const bindings={KeyW:['forward'],ArrowUp:['forward'],KeyS:['back'],ArrowDown:['back'],KeyA:['left'],ArrowLeft:['left'],KeyD:['right'],ArrowRight:['right'],ShiftLeft:['run'],ShiftRight:['run'],Space:['jump','handbrake'],KeyE:['enter','interact'],KeyF:['shoot'],KeyR:['reload'],KeyQ:['weaponWheel'],KeyM:['map'],KeyV:['view2d'],Escape:['pause'],KeyC:['crouch'],KeyH:['horn'],BracketRight:['weaponNext'],BracketLeft:['weaponPrev']};
+export function initInput(i,canvas){if(typeof window==='undefined'||!canvas?.addEventListener)return ()=>{};const listeners=[];const on=(target,type,fn)=>{target.addEventListener(type,fn);listeners.push(()=>target.removeEventListener(type,fn));};
+  const refresh=()=>{for(const actions of Object.values(bindings))for(const action of actions)i[action]=Object.entries(bindings).some(([code,list])=>list.includes(action)&&i.keys[code]);i.shoot=!!(i.keys.Mouse0||i.keys.KeyF);};
+  on(window,'keydown',e=>{const actions=bindings[e.code];if(!actions)return;if(e.code==='Space'||e.code.startsWith('Arrow'))e.preventDefault();const edge=!i.keys[e.code]&&!e.repeat;i.keys[e.code]=true;refresh();if(edge)for(const action of actions)i.pressed[action]=true;});
+  on(window,'keyup',e=>{i.keys[e.code]=false;refresh();});
+  on(canvas,'mousedown',e=>{if(e.button!==0)return;if(!i.keys.Mouse0)i.pressed.shoot=true;i.keys.Mouse0=true;refresh();});
+  on(window,'mouseup',e=>{if(e.button===0){i.keys.Mouse0=false;refresh();}});
+  on(canvas,'mousemove',e=>{i.mouseDX+=e.movementX||0;i.mouseDY+=e.movementY||0;const r=canvas.getBoundingClientRect();i.mouseX=(e.clientX-r.left)*(canvas.width||r.width)/Math.max(1,r.width);i.mouseY=(e.clientY-r.top)*(canvas.height||r.height)/Math.max(1,r.height);});
+  on(window,'blur',()=>{i.keys={};refresh();clearPressed(i);});return ()=>{for(const remove of listeners)remove();i.keys={};refresh();clearPressed(i);};
 }
-
-// The live keyboard state the browser maintains. `pressed` is the set of
-// keys currently down; `tapped` is the set pressed since the last step
-// (cleared after each step, so one press = one action).
-export function createKeyboard() {
-  return {
-    pressed: new Set(),
-    tapped: new Set(),
-    mouseDX: 0,
-    mouseDY: 0,
-    // Call from a keydown handler. Returns nothing; the press is recorded.
-    down(code) {
-      if (!this.pressed.has(code)) this.tapped.add(code);
-      this.pressed.add(code);
-    },
-    up(code) {
-      this.pressed.delete(code);
-    },
-    // Build the sim input for this step from the live key state.
-    read() {
-      const p = this.pressed;
-      const t = this.tapped;
-      const inp = emptyInput();
-      inp.forward = p.has('KeyW') || p.has('ArrowUp');
-      inp.back = p.has('KeyS') || p.has('ArrowDown');
-      inp.left = p.has('KeyA') || p.has('ArrowLeft');
-      inp.right = p.has('KeyD') || p.has('ArrowRight');
-      inp.handbrake = p.has('Space');
-      inp.jump = p.has('Space');
-      inp.run = p.has('ShiftLeft') || p.has('ShiftRight');
-      inp.enterVehicle = t.has('KeyE');
-      inp.interact = t.has('KeyE');
-      inp.fire = p.has('Mouse0');
-      inp.reload = t.has('KeyR');
-      inp.weaponNext = t.has('KeyQ');
-      inp.radioNext = t.has('BracketRight');
-      inp.radioPrev = t.has('BracketLeft');
-      inp.pause = t.has('Escape');
-      inp.map = t.has('KeyM');
-      inp.topDown = t.has('KeyV');
-      inp.mouseDX = this.mouseDX;
-      inp.mouseDY = this.mouseDY;
-      this.mouseDX = 0;
-      this.mouseDY = 0;
-      this.tapped.clear();
-      return inp;
-    },
-  };
-}
-
-// Mouse look: turning right (positive mouseDX) decreases yaw, so the
-// camera swings the way the hand moves. The sim applies this to the
-// player heading when aiming on foot.
-export function applyMouseLook(state, mouseDX, sensitivity = 0.003) {
-  if (!state.player.onFoot) return;
-  state.player.heading -= mouseDX * sensitivity;
-}
-
-// Clamp a value into a range (re-exported for input users).
-export { clamp };
+export function clearPressed(i){i.pressed={};i.mouseDX=0;i.mouseDY=0;}

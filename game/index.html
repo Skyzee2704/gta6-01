@@ -1,139 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" href="data:,">
-<title>SOLMAR 3D — Streets of Gold</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0a; font-family: 'Segoe UI', system-ui, sans-serif; color: #f0e8d8; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  /* --- HUD --- */
-  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 10; }
-  #hudTop { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 4px; }
-  #hudMoney { font-size: 26px; font-weight: 800; color: #7dff8a; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
-  #hudRespect { font-size: 14px; color: #ffd27a; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-  #hudStars { font-size: 22px; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
-  #clock { position: absolute; top: 12px; right: 12px; font-size: 15px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); text-align: right; }
-  #radio { position: absolute; top: 36px; right: 12px; font-size: 13px; color: #ffd27a; text-shadow: 0 1px 3px rgba(0,0,0,0.8); text-align: right; }
-  #healthWrap { position: absolute; bottom: 14px; left: 12px; width: 220px; }
-  .barLabel { font-size: 11px; letter-spacing: 1px; color: #ccc; }
-  .bar { height: 10px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.4); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
-  #hudHealthBar { height: 100%; width: 100%; background: linear-gradient(90deg, #27ae60, #7dff8a); }
-  #hudArmorBar { height: 100%; width: 0%; background: linear-gradient(90deg, #2e86c1, #5ad0ff); }
-  /* Weapon bar: 5 slots (1 Pistol, 2 SMG, 3 Rifle, 4 Shotgun, 5 Sniper). */
-  #weaponBar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
-  .wslot { width: 84px; padding: 6px 8px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; text-align: center; opacity: 0.45; }
-  .wslot.owned { opacity: 1; }
-  .wslot.current { border-color: #f5c518; box-shadow: 0 0 8px rgba(245,197,24,0.6); background: rgba(245,197,24,0.18); }
-  .wkey { display: block; font-size: 11px; color: #f5c518; font-weight: 800; }
-  .wname { display: block; font-size: 13px; font-weight: 700; }
-  .wammo { display: block; font-size: 11px; color: #aaa; }
-  /* Police response panel. */
-  #policePanel { position: absolute; top: 90px; right: 12px; width: 210px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,80,80,0.5); border-radius: 6px; padding: 8px; font-size: 12px; }
-  #policePanel:empty { display: none; }
-  .pp-title { font-weight: 800; color: #ff6666; margin-bottom: 4px; }
-  .pp-unit { display: flex; justify-content: space-between; padding: 2px 0; }
-  .pp-flag { color: #ffd27a; font-weight: 700; margin-top: 4px; }
-  /* Race board. */
-  #raceBoard { position: absolute; top: 90px; left: 12px; width: 200px; background: rgba(0,0,0,0.6); border: 1px solid rgba(90,208,255,0.5); border-radius: 6px; padding: 8px; font-size: 13px; }
-  #raceBoard:empty { display: none; }
-  .rb-title { font-weight: 800; color: #5ad0ff; margin-bottom: 4px; }
-  .rb-row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .rb-row.you { color: #f5c518; font-weight: 700; }
-  .rb-count { font-size: 42px; font-weight: 900; text-align: center; color: #f5c518; }
-  .rb-count.go { color: #7dff8a; }
-  /* Objective + district. */
-  #objective { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 600; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.9); background: rgba(0,0,0,0.45); padding: 6px 14px; border-radius: 4px; max-width: 70%; text-align: center; }
-  #objective:empty { display: none; }
-  #district { position: absolute; top: 38%; left: 50%; transform: translateX(-50%); font-size: 44px; font-weight: 900; letter-spacing: 6px; color: #fff; text-shadow: 0 4px 12px rgba(0,0,0,0.9); opacity: 0; transition: opacity 0.4s; text-align: center; }
-  #district.show { opacity: 1; }
-  #notices { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); text-align: center; }
-  .notice { font-size: 14px; font-weight: 600; color: #ffd27a; text-shadow: 0 1px 3px rgba(0,0,0,0.9); margin-top: 2px; }
-  #dialogue { position: absolute; bottom: 200px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 80%; background: rgba(0,0,0,0.72); border-left: 4px solid #f5c518; border-radius: 4px; padding: 10px 14px; display: none; }
-  .dlg-speaker { font-weight: 800; color: #f5c518; font-size: 13px; }
-  .dlg-text { font-size: 14px; line-height: 1.4; }
-  /* Minimap (round radar). */
-  #minimap { position: absolute; bottom: 14px; right: 12px; width: 170px; height: 170px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); }
-  /* --- Title screen --- */
-  #title { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: linear-gradient(180deg, rgba(10,10,20,0.55), rgba(10,10,20,0.85)); text-align: center; padding: 20px; }
-  #title h1 { font-size: 64px; font-weight: 900; letter-spacing: 8px; color: #f5c518; text-shadow: 0 4px 24px rgba(245,197,24,0.5); }
-  #title h2 { font-size: 22px; letter-spacing: 6px; color: #fff; font-weight: 400; }
-  #title p.tagline { font-size: 15px; color: #ddd; max-width: 560px; line-height: 1.5; }
-  #castRow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-  .cast-card { width: 110px; }
-  .cast-card canvas { width: 110px; height: 110px; border-radius: 8px; border: 2px solid rgba(245,197,24,0.5); }
-  .cast-role { font-size: 11px; color: #aaa; margin-top: 4px; }
-  #startBtn { pointer-events: auto; cursor: pointer; font-size: 20px; font-weight: 800; letter-spacing: 2px; color: #111; background: #f5c518; border: none; border-radius: 6px; padding: 14px 42px; box-shadow: 0 4px 20px rgba(245,197,24,0.5); }
-  #startBtn:hover { background: #ffd94d; }
-  #controls { font-size: 13px; color: #bbb; line-height: 1.7; max-width: 640px; }
-  #controls b { color: #fff; }
-  /* --- Pause --- */
-  #pause { position: fixed; inset: 0; z-index: 20; display: none; background: rgba(5,5,10,0.82); text-align: center; padding-top: 8vh; }
-  .pause-title { font-size: 44px; font-weight: 900; letter-spacing: 8px; color: #f5c518; }
-  .pause-complete { font-size: 20px; font-weight: 700; color: #7dff8a; margin: 10px 0 20px; }
-  .pause-stats { font-size: 15px; line-height: 1.9; color: #ddd; }
-  .pause-hint { margin-top: 24px; font-size: 13px; color: #999; }
-  /* --- Map --- */
-  #map { position: fixed; inset: 0; z-index: 15; display: none; background: #2a5a7a; }
-  #mapCanvas { width: 100%; height: 100%; }
-  #mapHint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); color: #aaa; font-size: 13px; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOLMAR 3D — Streets of Gold</title>
+  <style>
+    html, body { margin: 0; background: #0b1026; overflow: hidden; }
+    canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; }
+    canvas#view2d { position: fixed; inset: 0; display: none; width: 100%; height: 100%; }
+    #loading { position: fixed; inset: 0; z-index: 90; display: grid; place-content: center;
+      color: #f5ead2; background: #0b1026; font: 24px system-ui, sans-serif; text-align: center; }
+    #fatal { position: fixed; inset: 0; z-index: 100; display: none; padding: 32px;
+      background: #a00; color: white; font: 16px monospace; white-space: pre-wrap; overflow: auto; }
+  </style>
 </head>
 <body>
-<canvas id="game" width="1280" height="720"></canvas>
-
-<!-- HUD -->
-<div id="hud">
-  <div id="hudTop">
-    <div id="hudMoney">$250</div>
-    <div id="hudRespect">REP 0</div>
-    <div id="hudStars">☆☆☆☆☆</div>
-  </div>
-  <div id="clock">DAY 1 — 18:12</div>
-  <div id="radio"></div>
-  <div id="healthWrap">
-    <div class="barLabel">HEALTH</div>
-    <div class="bar"><div id="hudHealthBar"></div></div>
-    <div class="barLabel">ARMOR</div>
-    <div class="bar"><div id="hudArmorBar"></div></div>
-  </div>
-  <div id="weaponBar"></div>
-  <div id="policePanel"></div>
-  <div id="raceBoard"></div>
-  <div id="objective"></div>
-  <div id="district"></div>
-  <div id="notices"></div>
-  <div id="dialogue"></div>
-  <canvas id="minimap" width="170" height="170"></canvas>
-</div>
-
-<!-- Title screen -->
-<div id="title">
-  <h1>SOLMAR 3D</h1>
-  <h2>STREETS OF GOLD</h2>
-  <p class="tagline">Golden-hour open world. Steal cars, outrun the law, run six jobs for Vera Sol, and take the gold back from the Vultures — on a round island in the middle of a living sea.</p>
-  <div id="castRow"></div>
-  <button id="startBtn">START GAME</button>
-  <div id="controls">
-    <b>WASD</b> drive / walk &nbsp;·&nbsp; <b>Mouse</b> look &nbsp;·&nbsp; <b>E</b> enter car / interact &nbsp;·&nbsp; <b>F</b> exit car<br>
-    <b>Space</b> jump &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>Q</b> aim &nbsp;·&nbsp; <b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload<br>
-    <b>1–5</b> weapons (Pistol / SMG / Rifle / Shotgun / Sniper) &nbsp;·&nbsp; <b>]</b> next radio &nbsp;·&nbsp; <b>[</b> prev radio<br>
-    <b>M</b> map &nbsp;·&nbsp; <b>P / Esc</b> pause &nbsp;·&nbsp; <b>G</b> start race at the start line
-  </div>
-</div>
-
-<!-- Pause -->
-<div id="pause"></div>
-
-<!-- Big map -->
-<div id="map">
-  <canvas id="mapCanvas" width="1280" height="720"></canvas>
-  <div id="mapHint">M to close the map</div>
-</div>
-
-<script src="vendor/three.min.js"></script>
-<script type="module" src="src/main.js"></script>
+  <canvas id="game" aria-label="Solmar 3D game"></canvas>
+  <canvas id="view2d" aria-label="Solmar top-down view"></canvas>
+  <div id="loading">Loading Solmar... <span id="loadpct">0%</span></div>
+  <div id="fatal" role="alert"></div>
+  <script src="./vendor/three.min.js"></script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>

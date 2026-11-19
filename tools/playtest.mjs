@@ -1,212 +1,36 @@
-// playtest.mjs — scripted end-to-end playtest of the SOLMAR 3D sim.
-// Runs in Node (no WebGL): drives the sim with scripted inputs and reports
-// PASS/FAIL per item. Deterministic seed 1. Exit 0 iff every item passes.
-import { createWorld, emptyInput, EVENT_MISSION_DONE } from '../game/src/world.js';
-import { STEP } from '../game/src/config.js';
-import { findPath } from '../game/src/city.js';
-import { startMission } from '../game/src/missions.js';
-import { nearestVehicle } from '../game/src/vehicles.js';
-import { interiorAt, interactInterior, leaveInterior } from '../game/src/interiors.js';
-import { shopItems } from '../game/src/side.js';
-import { startRace, updateRace, raceRivals } from '../game/src/minigames.js';
-import { nearestBoat } from '../game/src/boats.js';
-import { heliAtPad } from '../game/src/aircraft.js';
-import { saveGame, loadGame } from '../game/src/save.js';
-import { drawTopDown } from '../game/src/render2d.js';
-import { weaponSlots } from '../game/src/hud.js';
+import {stepWorld,blankInput,steer,route,assert} from './sim-common.mjs';
+import {startMission} from '../game/src/missions.js';
+import {spawnVehicle,enterVehicle,exitVehicle} from '../game/src/vehicles.js';
+import {clearWanted} from '../game/src/world.js';
+function missionRun(w,index){assert(startMission(w,index),`cannot start mission index ${index}`);const a=w.mission.active,before={...w.stats},cash=w.money,respect=w.respect;let last='',completionCash=cash,completionRespect=respect;for(let n=0;n<24000&&w.mission.active;n++){const s=a.stages[a.stageIndex],k=s.kind;last=`${a.stageIndex} ${k} ${JSON.stringify(s.position)}`;let target=s.position,i=blankInput();const v=w.vehicles.find(v=>v.id===s.vehicleId);if(['pickup-car','steal-sports','steal-car'].includes(k)){target=v;if(Math.hypot(w.player.x-v.x,w.player.z-v.z)<4){if(!w.player.onFoot)exitVehicle(w);enterVehicle(w,v);}}
+else if(k.startsWith('pickup-')){const current=w.vehicles.find(v=>v.id===w.player.vehicleId);if(index===5&&current&&current.health<90)exitVehicle(w);if(w.player.onFoot)enterVehicle(w,spawnVehicle(w,'sedan',w.player.x,w.player.z,w.player.heading));if(Math.hypot(w.player.x-target.x,w.player.z-target.z)<2)i.pressed.enter=true;}
+else if(k==='collect'){target=w.pickups.find(p=>s.packages.includes(p.id)&&!p.taken)||target;}
+else if(k==='exit-cordon')target={x:s.center.x+130,z:s.center.z};
+else if(k==='lose-wanted'||k.includes('escape')){if(k.includes('escape')&&!w.player.onFoot)exitVehicle(w);target=w.city.spawn.safehouse;}
+else if(k==='crack-vault'){const d=Math.hypot(w.player.x-v.x,w.player.z-v.z);const current=w.vehicles.find(v=>v.id===w.player.vehicleId);if(current&&(d>12||current.health<35))exitVehicle(w);if(d<11&&w.player.onFoot)enterVehicle(w,spawnVehicle(w,'sedan',w.player.x,w.player.z,w.player.heading));target=s.position;}
+else if(k==='defend'){const e=w.enemies.find(e=>s.targets.includes(e.id));if(e){target=e;if(!w.player.onFoot)exitVehicle(w);w.player.heading=Math.atan2(e.z-w.player.z,e.x-w.player.x);i.pressed.shoot=n%20===0;i.pressed.reload=n%120===0;}}
+else if(k==='chase'){if(!v){stepWorld(w,i,1/60);continue;}target=w.city.graph[s.nextNode];if(w.player.onFoot)enterVehicle(w,spawnVehicle(w,'coupe',w.player.x,w.player.z,w.player.heading));if(Math.hypot(v.x-w.player.x,v.z-w.player.z)<40){i.pressed.shoot=n%20===0;i.pressed.reload=n%120===0;}}
+if(k==='crack-vault'&&Math.hypot(w.player.x-v.x,w.player.z-v.z)<11){i=blankInput();}else if(!['defend'].includes(k)){const drive=steer(w,route(w,target),{stop:k==='collect'?1:1.5});Object.assign(i,drive,{pressed:i.pressed});}
+completionCash=w.money;completionRespect=w.respect;stepWorld(w,i,1/60);if(w.player.dead||w.player.busted)break;}
+assert(!w.mission.active&&w.mission.completed.includes(a.id),`mission ${index+1} stalled/failed at ${last}; player=${JSON.stringify(w.player)} notices=${JSON.stringify(w.notices)}`);const r=w.mission.results;assert(r,'missing results');for(const key of ['payout','respect','time','accuracy','takedowns','crashes','topSpeed'])assert(Number.isFinite(r[key]),`invalid results ${key}`);assert(r.payout===w.money-completionCash&&r.respect===w.respect-completionRespect,'payout/respect delta mismatch');assert(Math.abs(r.time-(w.elapsed-a.startTime))<1e-8,'time mismatch');const shots=w.stats.shots-before.shots,hits=w.stats.hits-before.hits;assert(r.accuracy===(shots?Math.min(1,hits/shots):0),'accuracy mismatch');assert(r.takedowns===w.stats.kills-before.kills&&r.crashes===w.stats.crashes-before.crashes&&r.topSpeed===w.stats.topSpeed,'stats mismatch');console.log(`PASS mission ${index+1}: time=${r.time.toFixed(2)} payout=${r.payout} wanted=${w.wanted} results=${JSON.stringify(r)}`);clearWanted(w,'verification-between-missions');assert(w.wanted===0&&w.heat===0,'clearWanted failed');return r;}
 
-const results = [];
-function driveTo(state, world, tx, tz, maxSteps) {
-  const path = findPath(world.city, state.player.x, state.player.z, tx, tz);
-  const waypoints = [...path, { x: tx, z: tz }];
-  let wi = 0, steps = 0, reverseSteps = 0, lastX = state.player.x, lastZ = state.player.z, checkAt = 180;
-  while (steps++ < maxSteps) {
-    const inp = emptyInput();
-    const p = state.player;
-    const wp = waypoints[Math.min(wi, waypoints.length - 1)];
-    const d = Math.hypot(wp.x - p.x, wp.z - p.z);
-    if (d < 10) { wi += 1; if (wi >= waypoints.length) return true; continue; }
-    const want = Math.atan2(wp.x - p.x, wp.z - p.z);
-    let dh = want - p.heading;
-    while (dh > Math.PI) dh -= Math.PI * 2;
-    while (dh < -Math.PI) dh += Math.PI * 2;
-    if (steps >= checkAt) {
-      const moved = Math.hypot(p.x - lastX, p.z - lastZ);
-      lastX = p.x; lastZ = p.z; checkAt = steps + 180;
-      if (moved < 3 && !p.onFoot) reverseSteps = 90;
-    }
-    if (reverseSteps > 0) { reverseSteps -= 1; inp.back = true; inp.left = dh < 0; inp.right = dh > 0; }
-    else if (!p.onFoot) {
-      if (Math.abs(dh) > 2.2) { inp.back = true; inp.left = dh < 0; inp.right = dh > 0; }
-      else if (d < 25 && Math.abs(p.speed || 0) > 8) { inp.left = dh > 0.15; inp.right = dh < -0.15; }
-      else { inp.forward = Math.abs(dh) < 1.0; inp.left = dh > 0.15; inp.right = dh < -0.15; }
-    } else {
-      p.heading = want; inp.forward = true;
-    }
-    world.step(STEP, inp);
-  }
-  return Math.hypot(tx - state.player.x, tz - state.player.z) < 15;
-}
-function check(name, ok, detail) {
-  results.push({ name, ok: !!ok, detail: detail || '' });
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`);
-}
-const input = () => ({ ...emptyInput(), forward: true });
-function steps(w, n, inp) { for (let i = 0; i < n; i++) w.step(STEP, inp ? inp() : input()); }
-
-// --- 1. drive: player enters a parked car and moves > 50 units ---
-{
-  const w = createWorld(1); const s = w.state;
-  const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
-  s.player.x = car.x + 2; s.player.z = car.z;
-  w.step(STEP, { ...emptyInput(), enterVehicle: true });
-  const x0 = s.player.x, z0 = s.player.z;
-  steps(w, 600, () => ({ ...emptyInput(), forward: true, left: false, right: false }));
-  const d = Math.hypot(s.player.x - x0, s.player.z - z0);
-  check('drive', !s.player.onFoot && d > 50, `moved ${d.toFixed(1)} units, speed ${Math.abs(s.vehicles.find(v => v.id === s.player.vehicleId)?.speed || 0).toFixed(1)}`);
-}
-
-// --- 2. steal car: enter a parked car, wanted rises (witnessed) ---
-{
-  const w = createWorld(1); const s = w.state;
-  // Put a ped next to the car so the theft is witnessed.
-  const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
-  steps(w, 600); // let peds spawn in
-  s.peds[0].x = car.x + 3; s.peds[0].z = car.z;
-  s.player.x = car.x + 2; s.player.z = car.z;
-  const heat0 = s.wanted.heat;
-  w.step(STEP, { ...emptyInput(), enterVehicle: true });
-  steps(w, 300);
-  check('steal car + wanted rises', !s.player.onFoot && s.wanted.heat > heat0, `heat ${heat0.toFixed(2)} -> ${s.wanted.heat.toFixed(2)}, level ${s.wanted.level}`);
-}
-
-// --- 3. wanted + police chase: force wanted 3, cops spawn and close in ---
-{
-  const w = createWorld(1); const s = w.state;
-  s.wanted.heat = 3.4; s.wanted.level = 3; s.wanted.spotted = true;
-  s.wanted.searchX = s.player.x; s.wanted.searchZ = s.player.z; s.wanted.searchR = 500;
-  steps(w, 600);
-  const cop = s.cops[0];
-  const d = cop ? Math.hypot(cop.x - s.player.x, cop.z - s.player.z) : 999;
-  check('wanted + police chase', s.cops.length >= 3 && d < 120, `${s.cops.length} cops, nearest ${d.toFixed(1)} units`);
-}
-
-// --- 4. mission 1 completes (autopilot along roads, reuse missionCheck path) ---
-{
-  const w = createWorld(1); const s = w.state;
-  startMission(s, 1);
-  driveTo(s, w, -260, 200, 9000);
-  const car = s.vehicles.find(v => v.parked && v.model !== 'scooter' && v.model !== 'bike');
-  s.player.x = car.x + 2; s.player.z = car.z;
-  w.step(STEP, { ...emptyInput(), enterVehicle: true });
-  const ok = driveTo(s, w, -180, 60, 9000);
-  check('mission 1 completes', ok && s.mission.done[0], `money $${s.money}, respect ${s.respect}, done=${s.mission.done[0]}`);
-}
-
-// --- 5. enter diner + gun shop, buy a weapon ---
-{
-  const w = createWorld(1); const s = w.state;
-  s.player.x = w.city.diner.x; s.player.z = w.city.diner.z;
-  w.step(STEP, { ...emptyInput(), interact: true });
-  let okDiner = interiorAt(s, w.city) === 'diner';
-  if (okDiner) { interactInterior(s, 'meal'); }
-  leaveInterior(s);
-  s.player.x = w.city.gunshop.x; s.player.z = w.city.gunshop.z;
-  w.step(STEP, { ...emptyInput(), interact: true });
-  let okShop = interiorAt(s, w.city) === 'gunshop';
-  s.money = 2000; s.respectLevel = 1;
-  let bought = false;
-  if (okShop) { bought = interactInterior(s, 'smg'); }
-  leaveInterior(s);
-  check('enter diner + gun shop, buy weapon', okDiner && okShop && bought, `diner=${okDiner} shop=${okShop} smg=${bought} owned=${!!s.weapons.owned.smg}`);
-}
-
-// --- 6. street race 1 route vs rival AI ---
-{
-  const w = createWorld(1); const s = w.state;
-  startRace(s, 'marina');
-  // Mirror the main.js loop: race progress + rival AI run per step.
-  for (let i = 0; i < 60 * 90; i++) { w.step(STEP, emptyInput()); updateRace(s, STEP); raceRivals(s, STEP, w.rng); }
-  const rv = s.race.rivals?.[0];
-  check('street race 1 vs rival AI', s.race.active && rv && (rv.cp > 0 || Math.hypot(rv.x - s.player.x, rv.z - s.player.z) > 5), `race active=${s.race.active}, rival cp=${rv?.cp}, rival moved=${rv ? Math.hypot(rv.x - s.player.x, rv.z - s.player.z).toFixed(1) : '?'}`);
-}
-
-// --- 7. ride boat ---
-{
-  const w = createWorld(1); const s = w.state;
-  const b = nearestBoat(s, -260, 240);
-  let ok = !!b;
-  if (ok) {
-    s.player.x = b.x; s.player.z = b.z;
-    w.step(STEP, { ...emptyInput(), enterVehicle: true }); // single press: enter
-    steps(w, 60, () => ({ ...emptyInput(), forward: true }));
-    ok = s.player.boatId >= 0;
-  }
-  check('ride boat', ok, `boat at (${b?.x}, ${b?.z}), boatId=${s.player.boatId}`);
-}
-
-// --- 8. fly helicopter ---
-{
-  const w = createWorld(1); const s = w.state;
-  const pad = heliAtPad(s, 280, -80); // harbor helipad, ground-level heli
-  let ok = !!pad;
-  if (ok) {
-    s.player.x = 280; s.player.z = -80;
-    w.step(STEP, { ...emptyInput(), enterVehicle: true }); // single press: board
-    steps(w, 300, () => ({ ...emptyInput(), jump: true }));
-    const h = s.helis.find(q => q.id === s.player.heliId);
-    ok = s.player.heliId >= 0 && h && h.y > 1;
-  }
-  check('fly helicopter', ok, `pad=${!!pad}, heliId=${s.player.heliId}, alt=${(s.helis.find(q => q.id === s.player.heliId)?.y || 0).toFixed(1)}`);
-}
-
-// --- 9. rain weather ---
-{
-  const w = createWorld(1); const s = w.state;
-  s.weather.kind = 'rain'; s.weather.t = 30;
-  steps(w, 120);
-  check('rain weather', s.weather.kind === 'rain', `kind=${s.weather.kind}, t=${s.weather.t.toFixed(1)}`);
-}
-
-// --- 10. 2D fallback renderer draws without throwing ---
-{
-  const w = createWorld(1); const s = w.state;
-  const calls = [];
-  const ctx = new Proxy({}, { get: (t, k) => { if (k === 'canvas') return { width: 640, height: 480 }; return (...a) => calls.push(k); } });
-  let ok = true;
-  try { drawTopDown(ctx, s, w.city, 640, 480); } catch (e) { ok = false; console.log('  2d error:', e.message); }
-  check('2D fallback renderer', ok && calls.length > 50, `${calls.length} canvas calls`);
-}
-
-// --- 11. save / load round-trip ---
-{
-  // save.js uses window.localStorage; stub it in Node (graceful-degradation path).
-  const store = new Map();
-  globalThis.window = { localStorage: { setItem: (k, v) => store.set(k, v), getItem: k => store.get(k) ?? null } };
-  const w = createWorld(1); const s = w.state;
-  s.money = 7777; s.respect = 1234; s.mission.done = [true, false, false, false, false, false];
-  saveGame(s);
-  s.money = 0; s.respect = 0; s.mission.done = [false, false, false, false, false, false];
-  const loaded = loadGame(s);
-  check('save/load', loaded && s.money === 7777 && s.respect === 1234 && s.mission.done[0], `money $${s.money}, respect ${s.respect}, m1=${s.mission.done[0]}`);
-}
-
-// --- 12. HUD data: cop distances are finite + the weapon bar is exactly 5 gun slots ---
-{
-  const w = createWorld(1); const s = w.state;
-  s.wanted.heat = 3.4; s.wanted.level = 3; s.wanted.spotted = true;
-  steps(w, 600);
-  // The police panel computes Math.hypot(cop - player) per unit; a NaN
-  // cop position shows as "NaNm" in the panel. Every distance must be finite.
-  const dists = s.cops.map(c => Math.hypot(c.x - s.player.x, c.z - s.player.z));
-  const distsOk = dists.length >= 3 && dists.every(d => Number.isFinite(d));
-  // The weapon bar is 5 slots (Pistol/SMG/Rifle/Shotgun/Sniper), no Fists.
-  // weaponSlots() is a pure export of hud.js (no DOM at import time).
-  const slots = weaponSlots();
-  const slotsOk = slots.length === 5 && slots.map(x => x.id).join(',') === 'pistol,smg,rifle,shotgun,sniper';
-  check('HUD police distances + 5-slot weapon bar', distsOk && slotsOk, `cops=${s.cops.length} dists=[${dists.map(d => d.toFixed(0)).join(',')}] slots=${slots.map(x => x.name).join('/')}`);
-}
-
-const fails = results.filter(r => !r.ok);
-console.log(`\nplaytest: ${results.length - fails.length}/${results.length} PASS`);
-process.exit(fails.length ? 1 : 0);
+import {fresh,run} from './sim-common.mjs';
+import {stealVehicle} from '../game/src/vehicles.js';
+import {setWantedLevel} from '../game/src/police.js';
+import {buyWeapon} from '../game/src/weapons.js';
+import {addMoney} from '../game/src/world.js';
+import {nearestInterior,enterInterior,leaveInterior} from '../game/src/interiors.js';
+const memory=new Map();globalThis.localStorage={getItem:k=>memory.get(k)??null,setItem:(k,v)=>memory.set(k,String(v)),removeItem:k=>memory.delete(k)};
+run(async()=>{const {saveGame,loadGame,applySave,saveSummary}=await import('../game/src/save.js');const w=fresh();let passed=0,failed=0;async function check(name,fn){try{await fn();passed++;console.log('PASS '+name);}catch(e){failed++;console.error('FAIL '+name+': '+e.message);}}
+await check('1 fresh world',()=>assert(w.city&&w.player.health===100,'initial state'));
+await check('2 mission 1 completion and results',()=>missionRun(w,0));
+await check('3 steal car',()=>{if(!w.player.onFoot)exitVehicle(w);const v=spawnVehicle(w,'sedan',w.player.x,w.player.z,0);assert(stealVehicle(w,v),'steal failed');assert(!enterVehicle(w,v)&&w.player.vehicleId===v.id,'entry state');});
+await check('4 drive 600 steps',()=>{const x=w.player.x,z=w.player.z;for(let n=0;n<600;n++)stepWorld(w,steer(w,{x:x+100,z}),1/60);assert(Math.hypot(w.player.x-x,w.player.z-z)>1,'no driving movement');});
+await check('5 wanted two',()=>{setWantedLevel(w,2);assert(w.wanted===2,'wanted');});
+await check('6 cops chase',()=>{for(let n=0;n<120;n++)stepWorld(w,blankInput(),1/60);assert(w.cops.some(c=>c.state==='chase'||c.state==='search'),'no chase');});
+await check('7 buy weapon',()=>{addMoney(w,1000);assert(buyWeapon(w,'pistol')&&w.player.ammo.pistol,'purchase');});
+await check('8 approach nearest interior',()=>{clearWanted(w,'playtest');if(!w.player.onFoot)exitVehicle(w);const target=w.city.spawn.diner;for(let n=0;n<12000&&!nearestInterior(w);n++)stepWorld(w,steer(w,route(w,target),{stop:1}),1/60);assert(nearestInterior(w),'no interior in reach '+JSON.stringify(w.player));});
+await check('9 enter and leave interior',()=>{const d=nearestInterior(w);assert(d&&enterInterior(w,d.id),'entry');assert(leaveInterior(w)&&!w.flags.interior,'leave');});
+await check('10 save/load roundtrip',()=>{assert(saveGame(w),'save failed');const data=loadGame(),copy=fresh();assert(applySave(copy,data)&&copy.money===w.money&&copy.player.x===w.player.x,'roundtrip mismatch');});
+await check('11 saveSummary',()=>{const summary=saveSummary(loadGame());assert(summary.money===w.money&&summary.day===w.day&&summary.time===w.time&&summary.job===w.mission.index+1,'summary mismatch');});
+console.log(`playtest ${passed}/11 passed ${failed} failed`);assert(failed===0,'playtest checks failed');});

@@ -1,124 +1,15 @@
-// side.js — side activities: postcards, the Solmar Cab taxi, Pay n Spray,
-// the gun shop, and the property ladder. These are the things that make
-// Solmar a place to live in between jobs.
-
-import { WEAPONS } from './data.js';
-import { dist2 } from './random.js';
-import { addMoney, addRespect } from './economy.js';
-
-// The shop's stock: weapons with prices and respect requirements.
-// The playtest imports this to check the shop is wired.
-export function shopItems(state) {
-  return WEAPONS.map((w) => ({
-    id: w.id,
-    name: w.name,
-    price: w.price,
-    respect: w.respect,
-    owned: !!state.weapons.owned[w.id],
-    canAfford: state.money >= w.price,
-    unlocked: state.respectLevel >= w.respect,
-  }));
+import { registerSystem, addMoney, addRespect, addNotice, clearWanted } from './world.js';
+import { randomRoadPoint } from './city.js';
+import { giveWeapon } from './weapons.js';
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+export function taxiMarker(w){const t=w.flags.taxi;return t?{x:t.x,z:t.z,color:t.stage==='pickup'?'#ffdb37':'#44df81'}:null;}
+function clearTaxi(w){const t=w.flags.taxi;if(t)w.npcs=w.npcs.filter(n=>n.id!==t.passengerId);w.flags.taxi=null;}
+export function stepSide(w,input,dt){const p=w.player;
+  const cards=w.pickups.filter(c=>c.kind==='postcard');for(const c of cards)if(!c.taken&&!c.collected&&dist(p,c)<3){c.taken=true;c.collected=true;addMoney(w,500);addRespect(w,60);addNotice(w,`Postcard: ${c.title||c.id} +$500`);}
+  if(cards.length>=20&&cards.every(c=>c.taken||c.collected)&&!w.flags.postcardBonus){w.flags.postcardBonus=true;addMoney(w,5000);giveWeapon(w,'sniper');addNotice(w,'All 20 postcards! Bonus 5000 dollars + free Sniper Longeye 308.');}
+  if(!w.city)return;const v=w.vehicles.find(v=>v.id===p.vehicleId),entered=v?.id!==w.flags.lastSideVehicle;w.flags.lastSideVehicle=v?.id||null;
+  if(v?.type==='taxi'&&entered&&!w.flags.taxi){const pos=randomRoadPoint(w.rng,w.city),id=`taxi-passenger-${w.flags.taxiSerial=(w.flags.taxiSerial||0)+1}`;w.npcs.push({id,x:pos.x,z:pos.z,health:100,state:'idle',idleT:1e9,dead:false});w.flags.taxi={stage:'pickup',x:pos.x,z:pos.z,timer:90,vehicleId:v.id,passengerId:id};addNotice(w,'Solmar Cab: pick up the passenger at the yellow marker.');}
+  const t=w.flags.taxi;if(t){t.timer-=dt;if(t.timer<=0){addNotice(w,'Cab: passenger gave up, too slow.');clearTaxi(w);}else if(v?.type==='taxi'&&v.id===t.vehicleId&&dist(p,t)<6){if(t.stage==='pickup'){const dest=randomRoadPoint(w.rng,w.city);t.distance=dist(t,dest);t.stage='dropoff';t.x=dest.x;t.z=dest.z;t.timer=120;w.npcs=w.npcs.filter(n=>n.id!==t.passengerId);addNotice(w,'Passenger aboard! Drop them at the green marker.');}else{const fare=50+Math.round(t.distance*0.25)+Math.round(t.timer*5);addMoney(w,fare);addRespect(w,20);addNotice(w,`Cab fare done: +$${fare} + 20 respect.`);clearTaxi(w);}}}
+  const spray=w.city.landmarks.find(l=>l.id==='paynspray')||w.city.spawn.respray;if(v&&spray&&dist(v,spray)<10&&input.pressed?.interact){const cost=150+w.wanted*100;if(w.money>=cost){addMoney(w,-cost);clearWanted(w,'respray');let color;do{color='#'+Math.floor(w.rng()*0x1000000).toString(16).padStart(6,'0');}while(color===v.color);v.color=color;addNotice(w,`Pay n Spray: fresh paint, wanted cleared (-$${cost}).`);}else addNotice(w,`Not enough cash for a respray ($${cost}).`);}
 }
-
-// The diner menu.
-export function dinerMenu(state) {
-  return [
-    { id: 'meal', name: "Rosa's Lunch", price: 25, desc: 'Full health' },
-    { id: 'coffee', name: 'Harbor Coffee', price: 8, desc: 'A quick lift' },
-  ];
-}
-
-// Collect a postcard tape when the player walks over it.
-export function updateTapes(state, city) {
-  const p = state.player;
-  for (const tape of city.tapes) {
-    if (tape.found) continue;
-    if (dist2(p.x, p.z, tape.x, tape.z) < 9) {
-      tape.found = true;
-      state.tapesFound += 1;
-      addMoney(state, 250);
-      addRespect(state, 25);
-      if (state.notices) state.notices.push(`Postcard: ${tape.title} +$250`);
-      if (state.tapesFound >= 20 && state.notices) {
-        state.notices.push('All 20 postcards! Bonus 5000 dollars + free Sniper Longeye 308.');
-        addMoney(state, 5000);
-        state.weapons.owned.sniper = true;
-        state.weapons.ammo.sniper = 5;
-      }
-    }
-  }
-}
-
-// The taxi: a passenger waits at a marker; pick them up, drop them off.
-export function updateTaxi(state, city, dt, rng) {
-  const taxi = state.taxi;
-  if (!taxi.active) return;
-  const p = state.player;
-  if (taxi.stage === 0) {
-    // Waiting for the player to reach the passenger.
-    if (dist2(p.x, p.z, taxi.pickup.x, taxi.pickup.z) < 100) {
-      taxi.stage = 1;
-      if (state.notices) state.notices.push('Passenger aboard! Drop them at the green marker.');
-    }
-  } else if (taxi.stage === 1) {
-    taxi.timer += dt;
-    if (dist2(p.x, p.z, taxi.dropoff.x, taxi.dropoff.z) < 100) {
-      const fare = 120 + Math.round(taxi.timer * 2);
-      addMoney(state, fare);
-      addRespect(state, 20);
-      if (state.notices) state.notices.push(`Cab fare done: +$${fare} +20 respect.`);
-      taxi.active = false;
-      state.stats.fares = (state.stats.fares || 0) + 1;
-    } else if (taxi.timer > 120) {
-      if (state.notices) state.notices.push('Cab: passenger gave up, too slow.');
-      taxi.active = false;
-    }
-  }
-}
-
-// Start a taxi fare: a passenger appears at a random road node.
-export function startTaxi(state, city, rng) {
-  const a = city.nodes[rng.int(0, city.nodes.length - 1)];
-  const b = city.nodes[rng.int(0, city.nodes.length - 1)];
-  state.taxi = {
-    active: true,
-    stage: 0,
-    timer: 0,
-    pickup: { x: a.x, z: a.z },
-    dropoff: { x: b.x, z: b.z },
-  };
-  if (state.notices) state.notices.push('Solmar Cab: pick up the passenger at the yellow marker.');
-}
-
-// Pay n Spray: fresh paint clears the wanted level (for a price).
-export function respray(state) {
-  const cost = 150;
-  if (state.money < cost) {
-    if (state.notices) state.notices.push(`Not enough cash for a respray ($${cost}).`);
-    return false;
-  }
-  addMoney(state, -cost);
-  state.wanted.heat = 0;
-  state.wanted.level = 0;
-  state.wanted.spotted = false;
-  if (state.notices) state.notices.push(`Pay n Spray: fresh paint, wanted cleared (-$${cost}).`);
-  return true;
-}
-
-// Buy the Palm Heights penthouse.
-export function buyPenthouse(state) {
-  if (state.properties.penthouse) return false;
-  if (state.money < 20000) {
-    if (state.notices) state.notices.push('Not enough cash for the penthouse ($20,000).');
-    return false;
-  }
-  addMoney(state, -20000);
-  state.properties.penthouse = true;
-  if (state.notices) state.notices.push('Penthouse Palm Heights bought! Income 500 dollars per game day.');
-  return true;
-}
-
-// Daily income from the penthouse (called when the day rolls over).
-export function dailyIncome(state) {
-  if (state.properties.penthouse) addMoney(state, 500);
-}
+registerSystem('side',stepSide);

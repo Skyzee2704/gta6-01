@@ -1,72 +1,48 @@
-// buildings.js — procedural building detail (sim side).
-// The city generator makes footprints; this module turns each footprint
-// into the detail the renderer draws: floors, window grids, roof shape,
-// facade color, and a sign. No THREE here — just data. The renderer
-// reads the detail and builds meshes from it.
+import { ROOF_TYPES, FACADE_MATERIALS, SIGN_TEXTS } from './data.js';
+import { randomInt, randomPick, clamp } from './random.js';
 
-import { hash2 } from './random.js';
-
-// Facade colors by district.
-const FACADE = {
-  marina: ['#e8f4f2', '#bfe3de', '#f0e6d2'],
-  old: ['#e0a866', '#c98a5a', '#d8b48a'],
-  neon: ['#3a2a4a', '#2a2a3a', '#4a2a3a'],
-  harbor: ['#8a7a4a', '#6a6a6a', '#9a8a5a'],
-  palm: ['#f0e6d2', '#d8ecc9', '#e8d8b8'],
-  downtown: ['#7fb8e0', '#a8c8d8', '#5a8ab0'],
-};
-
-// Detail for one building: window grid, roof, facade, sign.
-export function buildingDetail(building) {
-  const h = hash2(building.x, building.z);
-  const h2 = hash2(building.z, building.x);
-  const palette = FACADE[building.district] || FACADE.downtown;
-  const facade = palette[Math.floor(h * palette.length)];
-  const cols = Math.max(2, Math.floor(building.w / 4));
-  const rows = Math.max(1, building.floors);
-  // Window grid: lit windows glow at golden hour.
+export function generateBuilding(rng, lot, district) {
+  const seed = Math.floor(rng() * 4294967296);
+  const floors = clamp(randomInt(rng, district.minFloors, district.maxFloors), district.minFloors, district.maxFloors);
+  const bays = clamp(Math.floor(lot.w / 4), 3, 8);
+  const weights = ROOF_TYPES.map(r => district.roofBias[r.id] || 0);
+  let ticket = rng() * weights.reduce((a, b) => a + b, 0);
+  let selected = ROOF_TYPES[0];
+  for (let i = 0; i < weights.length; i++) {
+    ticket -= weights[i];
+    if (ticket < 0) { selected = ROOF_TYPES[i]; break; }
+  }
+  const roof = { type: selected.id, pitch: selected.pitch || 0,
+    height: Math.min(lot.w, lot.d) * selected.heightFactor, overhang: selected.overhang };
   const windows = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const lit = hash2(building.x + c * 7, building.z + r * 13) < 0.45;
-      windows.push({ col: c, row: r, lit });
-    }
+  for (let floor = 0; floor < floors; floor++) {
+    for (let bay = 0; bay < bays; bay++) windows.push({ floor, bay, lit: rng() < 0.3 });
   }
-  // Roof: a shape and a height.
-  const roofHeight = building.roof === 'flat' ? 0.4 : building.roof === 'gabled' ? 2.2 : 1.6;
-  // A sign for shops (ground floor, facing the street).
-  const sign = h2 < 0.4 ? { text: shopSign(building, h2), lit: true } : null;
-  return {
-    facade,
-    cols,
-    rows,
-    windows,
-    roof: building.roof,
-    roofHeight,
-    sign,
-    // Glass towers get reflective windows.
-    glass: building.district === 'downtown',
-  };
+  const commercial = rng() < (district.id === 'palm-heights' ? 0.25 : 0.8);
+  const sign = commercial && rng() < 0.4
+    ? { text: randomPick(rng, SIGN_TEXTS[district.id]), side: randomPick(rng, ['north', 'south', 'east', 'west']) } : null;
+  return { ...lot, floors, bays, floorH: 3.2, totalH: floors * 3.2 + roof.height,
+    roof, facade: randomPick(rng, FACADE_MATERIALS.filter(f => f.district === district.id)).material,
+    baseColor: randomPick(rng, district.palette), trimColor: randomPick(rng, district.palette),
+    windows, sign, tier: { base: 3.2, shaft: (floors - 2) * 3.2, crown: 3.2 + roof.height }, seed };
 }
 
-const SIGNS = ['MART', 'CAFE', 'HOTEL', 'SUPPLY', 'GROCERY', 'BANK', 'DINER', 'MOTEL', 'SURF', 'MOTORS'];
-
-function shopSign(building, h) {
-  return SIGNS[Math.floor(h * SIGNS.length)];
-}
-
-// All building details for a city (computed once, cached on the city).
-export function cityBuildingDetails(city) {
-  if (city._details) return city._details;
-  city._details = city.buildings.map((b) => ({ building: b, detail: buildingDetail(b) }));
-  return city._details;
-}
-
-// Count the windows that are lit (for the renderer's glow budget).
-export function litWindowCount(city) {
-  let n = 0;
-  for (const { detail } of cityBuildingDetails(city)) {
-    for (const w of detail.windows) if (w.lit) n += 1;
+export function generateBuildingsForBlock(rng, block, district) {
+  const w = block.x1 - block.x0, d = block.z1 - block.z0;
+  if (w < 8 || d < 8) return [];
+  const count = w >= 20 && d >= 20 ? 4 : w >= 20 || d >= 20 ? 2 : 1;
+  const cols = count === 4 || (count === 2 && w >= d) ? 2 : 1;
+  const rows = count / cols;
+  const result = [];
+  for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+    const lotW = w / cols - 2, lotD = d / rows - 2;
+    if (lotW < 8 || lotD < 8) continue;
+    result.push(generateBuilding(rng, { x: block.x0 + (col + 0.5) * w / cols,
+      z: block.z0 + (row + 0.5) * d / rows, w: lotW, d: lotD }, district));
   }
-  return n;
+  return result;
+}
+
+export function buildingFootprint(b) {
+  return { x0: b.x - b.w / 2, z0: b.z - b.d / 2, x1: b.x + b.w / 2, z1: b.z + b.d / 2 };
 }

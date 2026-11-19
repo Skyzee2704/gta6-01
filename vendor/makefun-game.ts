@@ -1,7 +1,3 @@
-// Vendored for the gta6-01 entry "SOLMAR 3D — Streets of Gold": this is
-// make.fun's dossier library, copied unmodified (only this note added).
-// main.ts imports it to build /output/dossier.json; the scorer runs its
-// own identical copy, so the logic below must stay byte-identical.
 // make.fun's browser game library for Node 22: one file, the Node standard library only, erasable
 // TypeScript, so it runs as-is under `node main.ts` with no flags, no build and no install. Copy it to
 // vendor/makefun-game.ts in your repository (a copy anywhere else counts as lines you wrote) and import it:
