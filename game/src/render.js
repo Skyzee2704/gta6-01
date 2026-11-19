@@ -218,14 +218,17 @@ export function createRenderer(canvas) {
       }
       // Zebra crossings at both ends of each road: matte off-white
       // stripes, never glossy, so they read without glaring at golden
-      // hour. Seven stripes across the 10 m road, 0.9 m wide each.
+      // hour. Each stripe runs ACROSS the road (8 m long, 0.9 m wide),
+      // seven of them spaced 1.3 m apart along the road. The old
+      // dimensions had the long axis along the road, so two crossings
+      // at an intersection read as one giant white X.
       for (const end of [0.06, 0.94]) {
         const cx = road.x1 + (road.x2 - road.x1) * end;
         const cz = road.z1 + (road.z2 - road.z1) * end;
         for (let s = -3; s <= 3; s += 1) {
           const along = Math.sin(angle) * s * 1.3;
           const across = Math.cos(angle) * s * 1.3;
-          zebraBoxes.push({ w: 0.9, h: 0.15, d: 3.6, x: cx + along, y: 0.1, z: cz + across, rot: angle, color: '#d8d4c8' });
+          zebraBoxes.push({ w: 8, h: 0.15, d: 0.9, x: cx + along, y: 0.1, z: cz + across, rot: angle, color: '#d8d4c8' });
         }
       }
     }

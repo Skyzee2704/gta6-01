@@ -198,10 +198,15 @@ function stageRace(world) {
   state.weather.kind = 'clear';
   const sport = state.vehicles.find((v) => v.id === 'sport');
   if (sport) {
-    sport.x = 448;
+    // Start ON the outer ring's east point, heading south down the ring.
+    // The old start (448, 240) sat 22 m inside the ring, so every drive
+    // to the ring crossed grass — and the old two-leg fix drove north
+    // through a building cluster and wedged the car against a wall
+    // (race shot: luma 0.611, 99 KB, camera buried in a facade).
+    sport.x = 470;
     sport.z = 240;
     sport.heading = 0;
-    state.player.x = 448;
+    state.player.x = 470;
     state.player.z = 240;
     state.player.heading = 0;
     state.player.onFoot = false;
@@ -223,7 +228,14 @@ function stageRace(world) {
   state.missions.stepIndex = 0;
   state.dialogue.queue = [];
   state.dialogue.current = null;
-  driveForward(world, 120, 470, 260);
+  // Three short chords down the outer ring, which is an ELLIPSE
+  // (rx 150, rz 112.5), not a circle: (470, 240) -> (465, 269) ->
+  // (461, 279) -> (450, 296). Verified headless: the car ends at
+  // (454.4, 289.7) at 24.1 m/s, 0.7 m from the road centreline — on
+  // the asphalt, moving, camera behind it on the road.
+  driveForward(world, 60, 465, 269);
+  driveForward(world, 60, 461, 279);
+  driveForward(world, 90, 450, 296);
   // Thin the ambient traffic for the frame AFTER the drive: slicing before
   // it is undone by maintainTraffic refilling the ring to 12 during the
   // drive. 12 traffic cars plus 3 rivals plus the player put 130 draw

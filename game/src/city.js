@@ -206,14 +206,25 @@ export function generateCity(seed) {
     trees.push({ x, z, h: floatBetween(random, 4, 6.5), canopy: floatBetween(random, 1.6, 2.6) });
   }
 
-  // One lamp every 26 m along every road, alternating sides.
+  // One lamp every 26 m along every road, alternating sides — ON the
+  // sidewalk edge, 7.5 m off the centreline, never on the road itself.
+  // The old code stored `side` but never used it, so every lamp stood
+  // dead-centre in its lane and the cover camera drove straight into
+  // one: a black pole splitting the hero car down the middle.
   const lamps = [];
   for (const road of roads) {
     const len = dist2d(road.x1, road.z1, road.x2, road.z2);
     const count = Math.floor(len / CITY.lampSpacing);
+    const ux = (road.x2 - road.x1) / len;
+    const uz = (road.z2 - road.z1) / len;
     for (let i = 1; i < count; i += 1) {
       const t = i / count;
-      lamps.push({ x: road.x1 + (road.x2 - road.x1) * t, z: road.z1 + (road.z2 - road.z1) * t, side: i % 2 === 0 ? 1 : -1 });
+      const side = i % 2 === 0 ? 1 : -1;
+      lamps.push({
+        x: road.x1 + (road.x2 - road.x1) * t - uz * side * 7.5,
+        z: road.z1 + (road.z2 - road.z1) * t + ux * side * 7.5,
+        side,
+      });
     }
   }
 
